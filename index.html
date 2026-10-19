@@ -646,6 +646,62 @@ function MesAnoPicker({
     }
   }, "Limpar"))));
 }
+function useOrdem(padrao, aoMudar) {
+  const [o, setO] = useState(padrao || null);
+  const alterna = k => {
+    setO(x => x && x.k === k ? {
+      k,
+      dir: -x.dir
+    } : {
+      k,
+      dir: 1
+    });
+    if (aoMudar) aoMudar();
+  };
+  const aplica = (lista, get) => {
+    if (!o || !get[o.k]) return lista;
+    const g = get[o.k];
+    return lista.slice().sort((a, b) => {
+      const va = g(a),
+        vb = g(b);
+      const ea = va === null || va === undefined || va === '' || va === '—',
+        eb = vb === null || vb === undefined || vb === '' || vb === '—';
+      if (ea && eb) return 0;
+      if (ea) return 1;
+      if (eb) return -1;
+      const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR', {
+        sensitivity: 'base',
+        numeric: true
+      });
+      return c * o.dir;
+    });
+  };
+  return {
+    o,
+    alterna,
+    aplica
+  };
+}
+function ThOrd({
+  k,
+  ord,
+  children,
+  className = ''
+}) {
+  const ativo = !!(ord.o && ord.o.k === k);
+  return React.createElement("th", {
+    className: className,
+    "aria-sort": ativo ? ord.o.dir === 1 ? 'ascending' : 'descending' : 'none'
+  }, React.createElement("button", {
+    type: "button",
+    onClick: () => ord.alterna(k),
+    className: "inline-flex items-center gap-1 font-semibold hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand rounded",
+    title: "Clique para ordenar A-Z / Z-A"
+  }, children, React.createElement("span", {
+    "aria-hidden": "true",
+    className: ativo ? 'text-acento' : 'text-mute/50'
+  }, ativo ? ord.o.dir === 1 ? '▲' : '▼' : '↕')));
+}
 const CORES = {
   brand: '#42270C',
   acento: '#DF3A26',
@@ -945,6 +1001,13 @@ function Painel({
   }, fn0(v)), L.alertaFerias[k]))))));
 }
 const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const ORD_COLAB = {
+  nome: r => r.nome,
+  cargo: r => r.cargo,
+  departamento: r => r.departamento,
+  gestor: r => r.gestor,
+  admissao: r => r.data_admissao
+};
 function Colaboradores({
   perfil
 }) {
@@ -967,11 +1030,16 @@ function Colaboradores({
   const [sel, setSel] = useState(null);
   const [adm, setAdm] = useState(false);
   const q = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('*').order('vinculo_id')), []);
+  const ord = useOrdem({
+    k: 'nome',
+    dir: 1
+  }, () => setPage(0));
   const rows = useMemo(() => {
     const t = norm(f.q),
       td = dig(f.q);
-    return (q.data || []).filter(r => (f.status === 'todos' || f.status === 'ativos' === r.ativo) && (!f.dep || String(r.departamento_id) === f.dep) && (!f.tipo || r.tipo_vinculo === f.tipo) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.alerta || r.revisar.length > 0 || r.tem_observacao_negativa) && (!t || norm(r.nome).includes(t) || norm(r.matricula).includes(t) || td && r.cpf.includes(td) || norm(r.cargo).includes(t))).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  }, [q.data, f]);
+    const lista = (q.data || []).filter(r => (f.status === 'todos' || f.status === 'ativos' === r.ativo) && (!f.dep || String(r.departamento_id) === f.dep) && (!f.tipo || r.tipo_vinculo === f.tipo) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.alerta || r.revisar.length > 0 || r.tem_observacao_negativa) && (!t || norm(r.nome).includes(t) || norm(r.matricula).includes(t) || td && r.cpf.includes(td) || norm(r.cargo).includes(t))).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    return ord.aplica(lista, ORD_COLAB);
+  }, [q.data, f, ord.o]);
   const set = (k, v) => {
     setF(x => ({
       ...x,
@@ -1076,7 +1144,22 @@ function Colaboradores({
     className: "overflow-x-auto"
   }, React.createElement("table", {
     className: "tbl"
-  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Nome"), React.createElement("th", null, "Matrícula"), React.createElement("th", null, "Cargo"), React.createElement("th", null, "Departamento"), ve && React.createElement("th", null, "Gestor"), React.createElement("th", null, "Admissão"), React.createElement("th", null, "Situação"))), React.createElement("tbody", null, pagina.map(r => React.createElement("tr", {
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
+    k: "nome",
+    ord: ord
+  }, "Nome"), React.createElement("th", null, "Matrícula"), React.createElement(ThOrd, {
+    k: "cargo",
+    ord: ord
+  }, "Cargo"), React.createElement(ThOrd, {
+    k: "departamento",
+    ord: ord
+  }, "Departamento"), ve && React.createElement(ThOrd, {
+    k: "gestor",
+    ord: ord
+  }, "Gestor"), React.createElement(ThOrd, {
+    k: "admissao",
+    ord: ord
+  }, "Admissão"), React.createElement("th", null, "Situação"))), React.createElement("tbody", null, pagina.map(r => React.createElement("tr", {
     key: r.vinculo_id,
     onClick: () => setSel(r),
     className: "cursor-pointer"
@@ -2665,6 +2748,10 @@ const ultimoDiaMes = ym => {
   const [y, m] = ym.split('-').map(Number);
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 };
+const ORD_FERIAS = {
+  colaborador: r => r.nome,
+  situacao: r => L.ferias[r.situacao]
+};
 function FeriasLista({
   perfil,
   onChanged
@@ -2689,7 +2776,8 @@ function FeriasLista({
     ascending: false
   }).order('ferias_id')), []);
   const hoje = hojeISO();
-  const rows = useMemo(() => (q.data || []).filter(r => (!f.sit || (f.sit === 'aguardando' ? r.alerta_double_check : r.situacao === f.sit)) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.futuras || r.data_inicio > hoje) && (!f.mes || r.data_inicio <= ultimoDiaMes(f.mes) && r.data_fim >= f.mes + '-01') && (!f.q || norm(r.nome).includes(norm(f.q)) || r.matricula.includes(f.q))), [q.data, f]);
+  const ord = useOrdem(null, () => setPage(0));
+  const rows = useMemo(() => ord.aplica((q.data || []).filter(r => (!f.sit || (f.sit === 'aguardando' ? r.alerta_double_check : r.situacao === f.sit)) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.futuras || r.data_inicio > hoje) && (!f.mes || r.data_inicio <= ultimoDiaMes(f.mes) && r.data_fim >= f.mes + '-01') && (!f.q || norm(r.nome).includes(norm(f.q)) || r.matricula.includes(f.q))), ORD_FERIAS), [q.data, f, ord.o]);
   const gestoresLista = useMemo(() => [...new Map((q.data || []).filter(r => r.gestor_id).map(r => [r.gestor_id, r.gestor])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'pt-BR')), [q.data]);
   const mesesAnt = Number(params.double_check_meses_antecedencia || 2);
   const refresh = () => {
@@ -2816,7 +2904,13 @@ function FeriasLista({
     className: "overflow-x-auto"
   }, React.createElement("table", {
     className: "tbl"
-  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Colaborador"), React.createElement("th", null, "Período"), React.createElement("th", null, "Situação"), React.createElement("th", null, "Double check"), React.createElement("th", null, "Ações"))), React.createElement("tbody", null, pagina.map(r => {
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
+    k: "colaborador",
+    ord: ord
+  }, "Colaborador"), React.createElement("th", null, "Período"), React.createElement(ThOrd, {
+    k: "situacao",
+    ord: ord
+  }, "Situação"), React.createElement("th", null, "Double check"), React.createElement("th", null, "Ações"))), React.createElement("tbody", null, pagina.map(r => {
     const futura = r.data_inicio > hoje;
     const direto = meuGestor && r.gestor_id === meuGestor;
     return React.createElement("tr", {
@@ -3471,6 +3565,15 @@ function Vagas({
   const [det, setDet] = useState(null);
   const [motivo, setMotivo] = useState('');
   const req = v => v.requisitante_nome || v.gestor && v.gestor.nome || '—';
+  const ord = useOrdem(null);
+  const ordGet = {
+    funcao: v => v.cargo,
+    departamento: v => v.departamento.nome,
+    requisitante: req,
+    lider: v => v.lider_nome,
+    contrato: v => v.tipo_contrato,
+    status: v => L.vaga[v.status]
+  };
   const decidir = async () => {
     try {
       const body = dec.t === 'aprovar' ? {
@@ -3509,9 +3612,27 @@ function Vagas({
     className: "overflow-x-auto"
   }, React.createElement("table", {
     className: "tbl"
-  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Função"), React.createElement("th", null, "Departamento"), React.createElement("th", null, "Requisitante"), React.createElement("th", null, "Líder direto"), React.createElement("th", null, "Contrato"), React.createElement("th", {
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
+    k: "funcao",
+    ord: ord
+  }, "Função"), React.createElement(ThOrd, {
+    k: "departamento",
+    ord: ord
+  }, "Departamento"), React.createElement(ThOrd, {
+    k: "requisitante",
+    ord: ord
+  }, "Requisitante"), React.createElement(ThOrd, {
+    k: "lider",
+    ord: ord
+  }, "Líder direto"), React.createElement(ThOrd, {
+    k: "contrato",
+    ord: ord
+  }, "Contrato"), React.createElement("th", {
     className: "text-right"
-  }, "Qtde"), React.createElement("th", null, "Status"), React.createElement("th", null, "Aberta em"), React.createElement("th", null))), React.createElement("tbody", null, q.data.map(v => React.createElement("tr", {
+  }, "Qtde"), React.createElement(ThOrd, {
+    k: "status",
+    ord: ord
+  }, "Status"), React.createElement("th", null, "Aberta em"), React.createElement("th", null))), React.createElement("tbody", null, ord.aplica(q.data, ordGet).map(v => React.createElement("tr", {
     key: v.id
   }, React.createElement("td", null, React.createElement("div", {
     className: "font-medium"
@@ -4444,6 +4565,15 @@ function FichaCandidato({
     key: k
   }, rotuloCampo[k] || k, ": ", React.createElement("code", null, String(x)))))));
 }
+const ORD_BANCO = {
+  candidato: r => r.nome,
+  vaga: r => r.vaga,
+  entrevista_rh: r => r.data_entrevista_rh,
+  status_rh: r => r.status_rh,
+  status_gestor: r => r.status_gestor,
+  pesquisa: r => r.resultado_pesquisa,
+  status_final: r => r.status_final
+};
 function BancoCandidatos({
   perfil
 }) {
@@ -4486,7 +4616,11 @@ function BancoCandidatos({
   const distintos = k => [...new Set(dados.map(r => r[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const sugestoes = useMemo(() => Object.fromEntries(['status_rh', 'status_gestor', 'resultado_pesquisa', 'status_pesquisa', 'teste', 'status_teste', 'status_exame', 'indicacao', 'status_final', 'entrevistador', 'vaga'].map(k => [k, distintos(k)])), [q.data]);
   const base = useMemo(() => dados.filter(r => (!f.vaga || r.vaga === f.vaga) && (!f.entrevistador || r.entrevistador === f.entrevistador) && (!f.revisar || (r.revisar || []).length > 0) && (!f.q || hdr(r.nome).includes(hdr(f.q)) || hdr(maskContatos(r.contato)).includes(hdr(f.q)) || dig(f.q).length >= 4 && dig(r.contato).includes(dig(f.q)) || hdr(r.vaga).includes(hdr(f.q)))), [q.data, f]);
-  const rows = useMemo(() => base.filter(r => !f.status || r.status_final === f.status).sort((a, b) => String(b.data_entrevista_rh || '').localeCompare(String(a.data_entrevista_rh || '')) || b.id - a.id), [base, f.status]);
+  const ord = useOrdem({
+    k: 'entrevista_rh',
+    dir: -1
+  }, () => setPage(0));
+  const rows = useMemo(() => ord.aplica(base.filter(r => !f.status || r.status_final === f.status).sort((a, b) => b.id - a.id), ORD_BANCO), [base, f.status, ord.o]);
   const porStatus = useMemo(() => {
     const m = {};
     base.forEach(r => {
@@ -4720,7 +4854,28 @@ function BancoCandidatos({
     className: "overflow-x-auto"
   }, React.createElement("table", {
     className: "tbl"
-  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Candidato"), React.createElement("th", null, "Vaga"), React.createElement("th", null, "Entrevista RH"), React.createElement("th", null, "Status RH"), React.createElement("th", null, "Status gestor"), React.createElement("th", null, "Pesquisa"), React.createElement("th", null, "Status final"), React.createElement("th", null, "Entrevistador"), React.createElement("th", null, "Origem"))), React.createElement("tbody", null, rows.slice(page * 50, page * 50 + 50).map(r => React.createElement("tr", {
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
+    k: "candidato",
+    ord: ord
+  }, "Candidato"), React.createElement(ThOrd, {
+    k: "vaga",
+    ord: ord
+  }, "Vaga"), React.createElement(ThOrd, {
+    k: "entrevista_rh",
+    ord: ord
+  }, "Entrevista RH"), React.createElement(ThOrd, {
+    k: "status_rh",
+    ord: ord
+  }, "Status RH"), React.createElement(ThOrd, {
+    k: "status_gestor",
+    ord: ord
+  }, "Status gestor"), React.createElement(ThOrd, {
+    k: "pesquisa",
+    ord: ord
+  }, "Pesquisa"), React.createElement(ThOrd, {
+    k: "status_final",
+    ord: ord
+  }, "Status final"), React.createElement("th", null, "Entrevistador"), React.createElement("th", null, "Origem"))), React.createElement("tbody", null, rows.slice(page * 50, page * 50 + 50).map(r => React.createElement("tr", {
     key: r.id,
     className: "cursor-pointer",
     onClick: () => setFicha(r)
@@ -5415,6 +5570,11 @@ const perfilOpcoes = [['admin', 'Administrador'], ['dp', 'DP'], ['rs', 'RS (Recr
   key: k,
   value: k
 }, n));
+const ORD_USR = {
+  nome: u => u.nome,
+  email: u => u.email,
+  perfil: u => PAPEL_ROTULO[u.papel]
+};
 function CadUsuarios({
   me
 }) {
@@ -5428,6 +5588,10 @@ function CadUsuarios({
     pd: await run(sb.from('perfil_departamento').select('user_id,departamento_id'))
   }), []);
   const [dm, setDm] = useState(null);
+  const ordU = useOrdem({
+    k: 'nome',
+    dir: 1
+  });
   const [n, setN] = useState({
     email: '',
     nome: '',
@@ -5661,7 +5825,16 @@ function CadUsuarios({
     className: "panel overflow-x-auto"
   }, React.createElement("table", {
     className: "tbl"
-  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Nome"), React.createElement("th", null, "E-mail"), React.createElement("th", null, "Perfil"), React.createElement("th", null, "Gestor vinculado"), React.createElement("th", null, "Departamentos"), React.createElement("th", null, "Situação"), React.createElement("th", null))), React.createElement("tbody", null, q.data.p.map(u => {
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
+    k: "nome",
+    ord: ordU
+  }, "Nome"), React.createElement(ThOrd, {
+    k: "email",
+    ord: ordU
+  }, "E-mail"), React.createElement(ThOrd, {
+    k: "perfil",
+    ord: ordU
+  }, "Perfil"), React.createElement("th", null, "Gestor vinculado"), React.createElement("th", null, "Departamentos"), React.createElement("th", null, "Situação"), React.createElement("th", null))), React.createElement("tbody", null, ordU.aplica(q.data.p, ORD_USR).map(u => {
     const eu = u.user_id === me;
     const meusDeps = q.data.pd.filter(x => x.user_id === u.user_id).map(x => x.departamento_id);
     const m = ed[u.user_id];
