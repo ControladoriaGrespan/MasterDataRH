@@ -1003,6 +1003,7 @@ function Painel({
 const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const ORD_COLAB = {
   nome: r => r.nome,
+  matricula: r => r.matricula,
   cargo: r => r.cargo,
   departamento: r => r.departamento,
   gestor: r => r.gestor,
@@ -1147,7 +1148,10 @@ function Colaboradores({
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
     k: "nome",
     ord: ord
-  }, "Nome"), React.createElement("th", null, "Matrícula"), React.createElement(ThOrd, {
+  }, "Nome"), React.createElement(ThOrd, {
+    k: "matricula",
+    ord: ord
+  }, "Matrícula"), React.createElement(ThOrd, {
     k: "cargo",
     ord: ord
   }, "Cargo"), React.createElement(ThOrd, {
