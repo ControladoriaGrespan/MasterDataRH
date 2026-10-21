@@ -740,7 +740,21 @@ function Painel({
       if (error) throw error;
       return count || 0;
     };
-    const [tv, pir, hcd, c1, c2, c3, c4] = await Promise.all([rpc('fn_turnover', {
+    const cntE = async f => {
+      let b = sb.from('v_experiencia').select('id', {
+        count: 'exact',
+        head: true
+      });
+      b = f(b);
+      const {
+        count,
+        error
+      } = await b;
+      if (error) throw error;
+      return count || 0;
+    };
+    const emAnd = ['primeiro_periodo', 'segundo_periodo', 'vencido'];
+    const [tv, pir, hcd, c1, c2, c3, c4, ex1, ex2, ex3, ex4] = await Promise.all([rpc('fn_turnover', {
       p_ini: de + '-01',
       p_fim: ate + '-01',
       p_dep: depArg
@@ -749,11 +763,17 @@ function Painel({
       p_dep: depArg
     }), rpc('fn_headcount_departamento', {
       p_data: hojeISO()
-    }), veFerias ? cnt('double_check') : 0, veFerias ? cnt('ferias_dobradas') : 0, veFerias ? cnt('ferias_vencidas') : 0, veFerias ? cnt('sem_implantacao') : 0]);
+    }), veFerias ? cnt('double_check') : 0, veFerias ? cnt('ferias_dobradas') : 0, veFerias ? cnt('ferias_vencidas') : 0, veFerias ? cnt('sem_implantacao') : 0, veFerias ? cntE(x => x.in('situacao', emAnd)) : 0, veFerias ? cntE(x => x.eq('precisa_solicitar', true)) : 0, veFerias ? cntE(x => x.eq('aval_status', 'solicitada').in('situacao', emAnd)) : 0, veFerias ? cntE(x => x.eq('situacao', 'vencido')) : 0]);
     return {
       tv,
       pir,
       hcd,
+      exp: {
+        andamento: ex1,
+        precisa: ex2,
+        aguardando: ex3,
+        vencidos: ex4
+      },
       alertas: {
         double_check: c1,
         ferias_dobradas: c2,
@@ -987,6 +1007,18 @@ function Painel({
     config: chDep,
     height: 320
   }))), veFerias && React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-3"
+  }, "Contratos de experiência"), React.createElement("div", {
+    className: "flex flex-wrap gap-3 text-sm"
+  }, [['Em experiência', d.exp.andamento, false], ['Precisam pedir avaliação ao gestor', d.exp.precisa, true], ['Aguardando a avaliação do gestor', d.exp.aguardando, false], ['Vencidos sem decisão', d.exp.vencidos, true]].map(([n, v, alerta]) => React.createElement("a", {
+    key: n,
+    href: "#/experiencia",
+    className: 'rounded border px-3 py-2 ' + (v && alerta ? 'border-acento/60 bg-acento/5' : 'border-line')
+  }, React.createElement("span", {
+    className: "font-display text-xl tabular-nums mr-2"
+  }, fn0(v)), n)))), veFerias && React.createElement("div", {
     className: "panel p-4"
   }, React.createElement("h2", {
     className: "font-display text-base mb-3"
@@ -1225,7 +1257,7 @@ function Detalhe({
   const rh = ehPessoal(perfil.papel);
   const toast = useToast();
   const [aba, setAba] = useState('dados');
-  const abas = [['dados', 'Dados']].concat(rh ? [['hist', 'Histórico']] : []).concat(perfil.papel === 'rs' ? [] : [['ferias', 'Férias']]).concat(rh ? [['salario', 'Salário'], ['deslig', row.ativo ? 'Desligar' : 'Desligamento'], ['esocial', 'eSocial']] : []);
+  const abas = [['dados', 'Dados']].concat(rh ? [['hist', 'Histórico'], ['exp', 'Experiência']] : []).concat(perfil.papel === 'rs' ? [] : [['ferias', 'Férias']]).concat(rh ? [['salario', 'Salário'], ['deslig', row.ativo ? 'Desligar' : 'Desligamento'], ['esocial', 'eSocial']] : []);
   return React.createElement(Modal, {
     wide: true,
     title: row.nome,
@@ -1247,6 +1279,10 @@ function Detalhe({
     rh: rh,
     onChanged: onChanged
   }), aba === 'hist' && React.createElement(HistoricoTab, {
+    row: row,
+    perfil: perfil,
+    onChanged: onChanged
+  }), aba === 'exp' && React.createElement(ExperienciaTab, {
     row: row,
     perfil: perfil,
     onChanged: onChanged
@@ -2264,7 +2300,12 @@ function AdmissaoModal({
     gestor_id: candidato && candidato.gestor_id ? String(candidato.gestor_id) : '',
     data_admissao: hojeISO(),
     salario: '',
-    salario_unidade: 'mensal'
+    salario_unidade: 'mensal',
+    exp: {
+      formato: 'nenhum',
+      p1: '',
+      p2: ''
+    }
   });
   const [es, setEs] = useState({
     telefone: candidato ? maskTel(candidato.telefone || '') : '',
@@ -2306,15 +2347,26 @@ function AdmissaoModal({
       on = false;
     };
   }, [cpfD]);
-  const ok = cpfD.length === 11 && aviso && aviso.valido && !aviso.vinculo_ativo && v.nome.trim() && v.data_nascimento && v.matricula.trim() && v.cargo.trim() && v.departamento_id && v.data_admissao && v.salario;
+  const prExp = prazosExp(v.exp);
+  const ok = !(v.exp.formato === 'outro' && prExp.erro && !expSemContrato(v.tipo_vinculo)) && cpfD.length === 11 && aviso && aviso.valido && !aviso.vinculo_ativo && v.nome.trim() && v.data_nascimento && v.matricula.trim() && v.cargo.trim() && v.departamento_id && v.data_admissao && v.salario;
   const salvar = async () => {
     setBusy(true);
     try {
+      const {
+        exp,
+        ...resto
+      } = v;
       const dados = {
-        ...v,
+        ...resto,
         cpf: cpfD,
         salario: Number(v.salario),
-        esocial: limpaEsocial(es)
+        esocial: limpaEsocial(es),
+        ...(prExp.p1 && !prExp.erro && !expSemContrato(v.tipo_vinculo) ? {
+          experiencia: {
+            prazo1: prExp.p1,
+            prazo2: prExp.p2
+          }
+        } : {})
       };
       await rpc('admitir_colaborador', {
         p_dados: dados,
@@ -2453,7 +2505,14 @@ function AdmissaoModal({
     value: "mensal"
   }, "Mensal"), React.createElement("option", {
     value: "hora"
-  }, "Por hora")))), React.createElement("div", {
+  }, "Por hora")))), !expSemContrato(v.tipo_vinculo) && React.createElement("div", {
+    className: "mt-3"
+  }, React.createElement(ExperienciaCampos, {
+    valor: v.exp,
+    onChange: x => set('exp', x),
+    inicio: v.data_admissao,
+    tipoVinculo: v.tipo_vinculo
+  })), React.createElement("div", {
     className: "mt-4"
   }, React.createElement("button", {
     className: "text-sm underline text-brand",
@@ -4922,6 +4981,601 @@ function BancoCandidatos({
     }
   }));
 }
+const EXP_SIT = {
+  primeiro_periodo: '1º período',
+  segundo_periodo: '2º período',
+  vencido: 'Vencido sem decisão',
+  efetivado: 'Efetivado',
+  encerrado: 'Encerrado'
+};
+const EXP_AVAL = {
+  pendente: 'Avaliação pendente',
+  solicitada: 'Avaliação solicitada',
+  favoravel: 'Favorável',
+  desfavoravel: 'Desfavorável'
+};
+const EXP_FORMATOS = {
+  'nenhum': 'Sem contrato de experiência',
+  '30+60': '30 + 60 dias',
+  '45+45': '45 + 45 dias',
+  'outro': 'Outro prazo'
+};
+const expSemContrato = tipo => tipo === 'aprendiz' || tipo === 'estagiario';
+function prazosExp(v) {
+  if (v.formato === 'nenhum') return {
+    p1: null,
+    p2: 0,
+    erro: null
+  };
+  const [a, b] = v.formato === '30+60' ? [30, 60] : v.formato === '45+45' ? [45, 45] : [Number(v.p1), Number(v.p2 || 0)];
+  if (!(a >= 1)) return {
+    p1: null,
+    p2: 0,
+    erro: 'Informe a duração do 1º período.'
+  };
+  if (b < 0 || !Number.isInteger(a) || !Number.isInteger(b)) return {
+    p1: a,
+    p2: b,
+    erro: 'Use apenas dias inteiros.'
+  };
+  if (a + b > 90) return {
+    p1: a,
+    p2: b,
+    erro: `O contrato de experiência não pode passar de 90 dias (agora: ${a + b}).`
+  };
+  return {
+    p1: a,
+    p2: b,
+    erro: null
+  };
+}
+function ExperienciaCampos({
+  valor,
+  onChange,
+  inicio,
+  tipoVinculo
+}) {
+  if (expSemContrato(tipoVinculo)) return null;
+  const pr = prazosExp(valor);
+  const fim1 = inicio && pr.p1 ? somaDias(inicio, pr.p1 - 1) : null;
+  const fim2 = inicio && pr.p1 && pr.p2 ? somaDias(inicio, pr.p1 + pr.p2 - 1) : null;
+  return React.createElement("div", {
+    className: "grid md:grid-cols-3 gap-3"
+  }, React.createElement(Field, {
+    label: "Contrato de experiência",
+    hint: "Máximo de 90 dias no total, com uma única prorrogação."
+  }, React.createElement(Select, {
+    value: valor.formato,
+    onChange: e => onChange({
+      ...valor,
+      formato: e.target.value
+    })
+  }, Object.entries(EXP_FORMATOS).map(([k, n]) => React.createElement("option", {
+    key: k,
+    value: k
+  }, n)))), valor.formato === 'outro' && React.createElement(React.Fragment, null, React.createElement(Field, {
+    label: "1º período (dias)"
+  }, React.createElement(Input, {
+    type: "number",
+    min: "1",
+    max: "90",
+    value: valor.p1,
+    onChange: e => onChange({
+      ...valor,
+      p1: e.target.value
+    })
+  })), React.createElement(Field, {
+    label: "Prorrogação (dias, opcional)"
+  }, React.createElement(Input, {
+    type: "number",
+    min: "0",
+    max: "89",
+    value: valor.p2,
+    onChange: e => onChange({
+      ...valor,
+      p2: e.target.value
+    })
+  }))), pr.erro && valor.formato === 'outro' && React.createElement("p", {
+    className: "md:col-span-3 text-sm text-danger"
+  }, pr.erro), !pr.erro && fim1 && React.createElement("p", {
+    className: "md:col-span-3 text-sm text-mute"
+  }, "1º período até ", React.createElement("b", null, fd(fim1)), fim2 ? React.createElement(React.Fragment, null, " · prorrogação até ", React.createElement("b", null, fd(fim2))) : '', " (o 1º dia é a data de início)."));
+}
+function AcoesExperiencia({
+  r,
+  perfil,
+  onDone
+}) {
+  const {
+    params
+  } = useLook();
+  const toast = useToast();
+  const rh = ehPessoal(perfil.papel);
+  const direto = perfil.papel === 'gestor' && !!perfil.gestor_id && r.gestor_id === perfil.gestor_id;
+  const [modal, setModal] = useState(null);
+  const [f, setF] = useState({
+    resultado: '',
+    obs: '',
+    data: hojeISO()
+  });
+  const emAndamento = ['primeiro_periodo', 'segundo_periodo', 'vencido'].includes(r.situacao);
+  const registrada = r.aval_status === 'favoravel' || r.aval_status === 'desfavoravel';
+  const n = r.periodo_atual;
+  const pedir = async () => {
+    try {
+      await rpc('solicitar_avaliacao_experiencia', {
+        p_vinculo: r.vinculo_id,
+        p_periodo: n
+      });
+      toast('Pedido de avaliação registrado.');
+      onDone();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    }
+  };
+  const tpl = params.whatsapp_mensagem_experiencia || 'Olá, {gestor}! Preciso da sua avaliação do período de experiência de {colaborador} ({periodo}º período, termina em {fim}).';
+  const wa = r.gestor_telefone ? waLink(r.gestor_telefone, tpl.replace('{gestor}', String(r.gestor || '').split(' ')[0]).replace('{colaborador}', r.nome).replace('{periodo}', n).replace('{fim}', fd(r.fim_periodo_atual))) : null;
+  const abreAvaliar = () => {
+    setF({
+      resultado: r['aval' + n + '_resultado'] || '',
+      obs: r['aval' + n + '_obs'] || '',
+      data: hojeISO()
+    });
+    setModal('avaliar');
+  };
+  const salvarAval = async () => {
+    try {
+      await rpc('registrar_avaliacao_experiencia', {
+        p_vinculo: r.vinculo_id,
+        p_periodo: n,
+        p_resultado: f.resultado,
+        p_obs: nz(f.obs.trim())
+      });
+      toast('Avaliação registrada.');
+      setModal(null);
+      onDone();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    }
+  };
+  const efetivar = async () => {
+    try {
+      await rpc('efetivar_colaborador', {
+        p_vinculo: r.vinculo_id,
+        p_data: f.data
+      });
+      toast('Colaborador efetivado.');
+      setModal(null);
+      onDone();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    }
+  };
+  if (!emAndamento) return null;
+  return React.createElement("div", {
+    className: "flex flex-wrap items-center gap-1"
+  }, rh && !registrada && (wa ? React.createElement("a", {
+    className: "btn btn-sec",
+    href: wa,
+    target: "_blank",
+    rel: "noopener",
+    onClick: pedir,
+    title: "Registra o pedido e abre o WhatsApp do gestor com a mensagem pronta"
+  }, "Pedir avaliação (WhatsApp)") : React.createElement(React.Fragment, null, React.createElement(Btn, {
+    onClick: pedir
+  }, "Registrar pedido de avaliação"), React.createElement(Badge, {
+    tone: "aviso",
+    title: "Cadastre o telefone em Cadastros › Gestores"
+  }, "Gestor sem telefone"))), direto && !registrada && React.createElement(Btn, {
+    kind: "pri",
+    onClick: abreAvaliar
+  }, "Avaliar"), rh && React.createElement(Btn, {
+    onClick: abreAvaliar
+  }, registrada ? 'Corrigir avaliação' : 'Registrar avaliação'), rh && React.createElement(Btn, {
+    onClick: () => {
+      setF({
+        resultado: '',
+        obs: '',
+        data: hojeISO()
+      });
+      setModal('efetivar');
+    }
+  }, "Efetivar"), modal === 'avaliar' && React.createElement(Modal, {
+    title: `Avaliação de experiência · ${r.nome}`,
+    onClose: () => setModal(null),
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: () => setModal(null)
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "pri",
+      disabled: !f.resultado || f.resultado === 'desfavoravel' && !f.obs.trim(),
+      onClick: salvarAval
+    }, "Registrar avaliação"))
+  }, React.createElement("p", {
+    className: "text-sm mb-3"
+  }, n, "º período do contrato de experiência (", r.formato, " dias), termina em ", React.createElement("b", null, fd(r.fim_periodo_atual)), "."), React.createElement(Field, {
+    label: "Parecer"
+  }, React.createElement("div", {
+    className: "flex gap-5 h-9 items-center text-sm",
+    role: "radiogroup"
+  }, [['favoravel', 'Favorável (recomenda seguir)'], ['desfavoravel', 'Desfavorável']].map(([k, nm]) => React.createElement("label", {
+    key: k,
+    className: "flex items-center gap-1.5"
+  }, React.createElement("input", {
+    type: "radio",
+    name: "parecer_exp",
+    checked: f.resultado === k,
+    onChange: () => setF({
+      ...f,
+      resultado: k
+    })
+  }), " ", nm)))), React.createElement(Field, {
+    label: f.resultado === 'desfavoravel' ? 'Motivo (obrigatório)' : 'Observações',
+    className: "mt-3"
+  }, React.createElement("textarea", {
+    className: "inp min-h-[90px]",
+    value: f.obs,
+    onChange: e => setF({
+      ...f,
+      obs: e.target.value
+    })
+  }))), modal === 'efetivar' && React.createElement(Modal, {
+    title: `Efetivar · ${r.nome}`,
+    onClose: () => setModal(null),
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: () => setModal(null)
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "pri",
+      disabled: !f.data,
+      onClick: efetivar
+    }, "Efetivar"))
+  }, React.createElement("p", {
+    className: "text-sm mb-3"
+  }, "Registra que o colaborador seguirá após a experiência (contrato por prazo indeterminado). Para encerrar o contrato, use a aba Desligar da ficha."), React.createElement(Field, {
+    label: "Data da efetivação"
+  }, React.createElement(Input, {
+    type: "date",
+    value: f.data,
+    onChange: e => setF({
+      ...f,
+      data: e.target.value
+    })
+  }))));
+}
+const diasBadge = (r, aviso) => {
+  if (!['primeiro_periodo', 'segundo_periodo', 'vencido'].includes(r.situacao) || r.dias_restantes === null || r.dias_restantes === undefined) return null;
+  const d = r.dias_restantes;
+  if (d < 0) return React.createElement(Badge, {
+    tone: "perigo"
+  }, "Venceu há ", -d, " dia", d === -1 ? '' : 's');
+  if (d === 0) return React.createElement(Badge, {
+    tone: "perigo"
+  }, "Termina hoje");
+  return React.createElement(Badge, {
+    tone: d <= aviso ? 'aviso' : 'neutro'
+  }, d, " dia", d === 1 ? '' : 's', " restante", d === 1 ? '' : 's');
+};
+const avalBadge = r => React.createElement(Badge, {
+  tone: r.aval_status === 'favoravel' ? 'ok' : r.aval_status === 'desfavoravel' ? 'perigo' : r.aval_status === 'solicitada' ? 'aviso' : 'neutro'
+}, EXP_AVAL[r.aval_status]);
+const ORD_EXP = {
+  colaborador: r => r.nome,
+  gestor: r => r.gestor,
+  fim: r => r.fim_periodo_atual,
+  situacao: r => EXP_SIT[r.situacao]
+};
+function Experiencia({
+  perfil
+}) {
+  const rh = ehPessoal(perfil.papel);
+  const {
+    params
+  } = useLook();
+  const aviso = Number(params.experiencia_aviso_dias || 10);
+  const [f, setF] = useState({
+    q: '',
+    sit: 'andamento',
+    aval: '',
+    gestor: ''
+  });
+  const [page, setPage] = useState(0);
+  const ord = useOrdem({
+    k: 'fim',
+    dir: 1
+  }, () => setPage(0));
+  const q = useAsync(() => fetchAll(() => sb.from('v_experiencia').select('*').order('id')), []);
+  const dados = q.data || [];
+  const andamento = r => ['primeiro_periodo', 'segundo_periodo', 'vencido'].includes(r.situacao);
+  const resumo = {
+    andamento: dados.filter(andamento).length,
+    precisa: dados.filter(r => r.precisa_solicitar).length,
+    aguardando: dados.filter(r => andamento(r) && r.aval_status === 'solicitada').length,
+    vencidos: dados.filter(r => r.situacao === 'vencido').length
+  };
+  const gestores = useMemo(() => [...new Map(dados.filter(r => r.gestor_id).map(r => [r.gestor_id, r.gestor])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'pt-BR')), [q.data]);
+  const rows = useMemo(() => ord.aplica(dados.filter(r => (f.sit === 'todos' || (f.sit === 'andamento' ? andamento(r) : r.situacao === f.sit)) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.aval || (f.aval === 'precisa' ? r.precisa_solicitar : f.aval === 'aguardando' ? andamento(r) && r.aval_status === 'solicitada' : r.aval_status === 'favoravel' || r.aval_status === 'desfavoravel')) && (!f.q || norm(r.nome).includes(norm(f.q)) || r.matricula.includes(f.q))), ORD_EXP), [q.data, f, ord.o]);
+  const set = (k, v) => {
+    setF(x => ({
+      ...x,
+      [k]: v
+    }));
+    setPage(0);
+  };
+  const chip = (rot, n, acao, ativo) => React.createElement("button", {
+    className: 'rounded border px-2.5 py-1 text-sm ' + (ativo ? 'bg-brand text-white border-brand' : 'bg-white border-line hover:bg-canvas'),
+    onClick: acao
+  }, rot, " · ", React.createElement("b", null, n));
+  return React.createElement("div", null, React.createElement(PageHead, {
+    title: rh ? 'Contratos de experiência' : 'Experiência da minha equipe',
+    sub: rh ? 'Acompanhe os prazos e peça ao gestor a avaliação antes do fim de cada período.' : 'Registre a avaliação dos colaboradores da sua equipe em experiência.'
+  }, React.createElement(Btn, {
+    onClick: () => baixar(rows.map(r => ({
+      Matricula: r.matricula,
+      Colaborador: r.nome,
+      Departamento: r.departamento,
+      Gestor: r.gestor,
+      Formato: r.formato,
+      Inicio: fd(r.data_inicio),
+      Fim_1_periodo: fd(r.fim1),
+      Fim_2_periodo: r.prazo2_dias ? fd(r.fim2) : '',
+      Situacao: EXP_SIT[r.situacao],
+      Dias_restantes: r.dias_restantes,
+      Avaliacao: EXP_AVAL[r.aval_status]
+    })), 'experiencia_' + hojeISO(), 'xlsx'),
+    disabled: !rows.length
+  }, "Exportar Excel")), React.createElement("div", {
+    className: "flex flex-wrap gap-2 mb-3",
+    "aria-label": "Resumo da experiência"
+  }, chip('Em experiência', resumo.andamento, () => setF({
+    ...f,
+    sit: 'andamento',
+    aval: ''
+  }), f.sit === 'andamento' && !f.aval), rh && chip('Precisam pedir avaliação', resumo.precisa, () => setF({
+    ...f,
+    sit: 'andamento',
+    aval: 'precisa'
+  }), f.aval === 'precisa'), chip('Aguardando o gestor', resumo.aguardando, () => setF({
+    ...f,
+    sit: 'andamento',
+    aval: 'aguardando'
+  }), f.aval === 'aguardando'), chip('Vencidos sem decisão', resumo.vencidos, () => setF({
+    ...f,
+    sit: 'vencido',
+    aval: ''
+  }), f.sit === 'vencido')), React.createElement("div", {
+    className: "panel"
+  }, React.createElement("div", {
+    className: "p-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line"
+  }, React.createElement(Input, {
+    placeholder: "Buscar colaborador",
+    value: f.q,
+    onChange: e => set('q', e.target.value),
+    "aria-label": "Buscar",
+    className: "w-56"
+  }), React.createElement(Select, {
+    value: f.sit,
+    onChange: e => set('sit', e.target.value),
+    "aria-label": "Situação",
+    className: "w-56"
+  }, React.createElement("option", {
+    value: "andamento"
+  }, "Em andamento"), React.createElement("option", {
+    value: "primeiro_periodo"
+  }, "1º período"), React.createElement("option", {
+    value: "segundo_periodo"
+  }, "2º período"), React.createElement("option", {
+    value: "vencido"
+  }, "Vencido sem decisão"), React.createElement("option", {
+    value: "efetivado"
+  }, "Efetivados"), React.createElement("option", {
+    value: "encerrado"
+  }, "Encerrados"), React.createElement("option", {
+    value: "todos"
+  }, "Todos")), React.createElement(Select, {
+    value: f.aval,
+    onChange: e => set('aval', e.target.value),
+    "aria-label": "Avaliação",
+    className: "w-60"
+  }, React.createElement("option", {
+    value: ""
+  }, "Qualquer avaliação"), rh && React.createElement("option", {
+    value: "precisa"
+  }, "Precisa pedir avaliação"), React.createElement("option", {
+    value: "aguardando"
+  }, "Aguardando o gestor"), React.createElement("option", {
+    value: "registrada"
+  }, "Avaliação registrada")), rh && React.createElement(Select, {
+    value: f.gestor,
+    onChange: e => set('gestor', e.target.value),
+    "aria-label": "Gestor",
+    className: "w-56"
+  }, React.createElement("option", {
+    value: ""
+  }, "Todos os gestores"), gestores.map(([id, nm]) => React.createElement("option", {
+    key: id,
+    value: id
+  }, nm)))), rh && React.createElement("p", {
+    className: "px-3 py-2 text-xs text-mute border-b border-line"
+  }, "O pedido de avaliação fica sinalizado a partir de ", aviso, " dias antes do fim de cada período (ajuste em Cadastros › Parâmetros). O botão abre o WhatsApp do gestor direto com a mensagem pronta e registra o pedido."), q.error && React.createElement(Erro, {
+    e: q.error,
+    onRetry: q.reload
+  }), q.loading && !q.data ? React.createElement(Spinner, null) : React.createElement("div", {
+    className: "overflow-x-auto"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
+    k: "colaborador",
+    ord: ord
+  }, "Colaborador"), React.createElement(ThOrd, {
+    k: "gestor",
+    ord: ord
+  }, "Gestor"), React.createElement("th", null, "Formato"), React.createElement("th", null, "1º período"), React.createElement("th", null, "2º período"), React.createElement(ThOrd, {
+    k: "fim",
+    ord: ord
+  }, "Período atual termina em"), React.createElement(ThOrd, {
+    k: "situacao",
+    ord: ord
+  }, "Situação"), React.createElement("th", null, "Avaliação"), React.createElement("th", null, "Ações"))), React.createElement("tbody", null, rows.slice(page * 50, page * 50 + 50).map(r => React.createElement("tr", {
+    key: r.id
+  }, React.createElement("td", null, React.createElement("div", {
+    className: "font-medium"
+  }, r.nome), React.createElement("div", {
+    className: "text-xs text-mute"
+  }, r.matricula, " · ", r.departamento)), React.createElement("td", null, r.gestor || '—'), React.createElement("td", {
+    className: "tabular-nums"
+  }, r.formato), React.createElement("td", {
+    className: "tabular-nums text-xs"
+  }, fd(r.data_inicio), " a ", fd(r.fim1), r.aval1_resultado && React.createElement("div", null, React.createElement(Badge, {
+    tone: r.aval1_resultado === 'favoravel' ? 'ok' : 'perigo'
+  }, r.aval1_resultado === 'favoravel' ? 'Favorável' : 'Desfavorável'))), React.createElement("td", {
+    className: "tabular-nums text-xs"
+  }, r.prazo2_dias ? React.createElement(React.Fragment, null, fd(somaDias(r.fim1, 1)), " a ", fd(r.fim2), r.aval2_resultado && React.createElement("div", null, React.createElement(Badge, {
+    tone: r.aval2_resultado === 'favoravel' ? 'ok' : 'perigo'
+  }, r.aval2_resultado === 'favoravel' ? 'Favorável' : 'Desfavorável'))) : '—'), React.createElement("td", {
+    className: "tabular-nums"
+  }, ['efetivado', 'encerrado'].includes(r.situacao) ? '—' : fd(r.fim_periodo_atual), React.createElement("div", {
+    className: "mt-1"
+  }, diasBadge(r, aviso))), React.createElement("td", null, React.createElement(Badge, {
+    tone: r.situacao === 'vencido' ? 'perigo' : r.situacao === 'efetivado' ? 'ok' : 'neutro'
+  }, EXP_SIT[r.situacao]), r.efetivado_em && React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "em ", fd(r.efetivado_em))), React.createElement("td", null, ['primeiro_periodo', 'segundo_periodo', 'vencido'].includes(r.situacao) ? React.createElement(React.Fragment, null, avalBadge(r), r.aval_status === 'solicitada' && React.createElement("div", {
+    className: "text-xs text-mute mt-1"
+  }, "pedida em ", fd(r['aval' + r.periodo_atual + '_solicitada_em'])), r.precisa_solicitar && React.createElement("div", {
+    className: "mt-1"
+  }, React.createElement(Badge, {
+    tone: "destaque"
+  }, "Pedir agora"))) : '—'), React.createElement("td", null, React.createElement(AcoesExperiencia, {
+    r: r,
+    perfil: perfil,
+    onDone: q.reload
+  })))))), !rows.length && React.createElement(Vazio, null, "Nenhum contrato de experiência neste filtro.")), React.createElement(Pager, {
+    total: rows.length,
+    page: page,
+    size: 50,
+    onPage: setPage
+  })));
+}
+function ExperienciaTab({
+  row,
+  perfil,
+  onChanged
+}) {
+  const toast = useToast();
+  const {
+    params
+  } = useLook();
+  const aviso = Number(params.experiencia_aviso_dias || 10);
+  const q = useAsync(() => run(sb.from('v_experiencia').select('*').eq('vinculo_id', row.vinculo_id).maybeSingle()), [row.vinculo_id]);
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState({
+    formato: '45+45',
+    p1: '',
+    p2: ''
+  });
+  const [inicio, setInicio] = useState(row.data_admissao);
+  const [busy, setBusy] = useState(false);
+  const r = q.data;
+  const abrirEdicao = () => {
+    if (r) {
+      const f = r.formato;
+      setV({
+        formato: f === '30+60' || f === '45+45' ? f : 'outro',
+        p1: String(r.prazo1_dias),
+        p2: String(r.prazo2_dias)
+      });
+      setInicio(r.data_inicio);
+    }
+    setEdit(true);
+  };
+  const pr = prazosExp(v);
+  const salvar = async () => {
+    setBusy(true);
+    try {
+      await rpc('registrar_experiencia', {
+        p_vinculo: row.vinculo_id,
+        p_prazo1: pr.p1,
+        p_prazo2: pr.p2,
+        p_inicio: inicio
+      });
+      toast('Contrato de experiência salvo.');
+      setEdit(false);
+      q.reload();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (q.loading) return React.createElement(Spinner, null);
+  if (q.error) return React.createElement(Erro, {
+    e: q.error,
+    onRetry: q.reload
+  });
+  const form = React.createElement("div", {
+    className: "space-y-3"
+  }, React.createElement(ExperienciaCampos, {
+    valor: v,
+    onChange: setV,
+    inicio: inicio,
+    tipoVinculo: row.tipo_vinculo
+  }), React.createElement(Field, {
+    label: "Início da experiência",
+    hint: "Normalmente é a data de admissão.",
+    className: "max-w-xs"
+  }, React.createElement(Input, {
+    type: "date",
+    min: row.data_admissao,
+    value: inicio,
+    onChange: e => setInicio(e.target.value)
+  })), React.createElement("div", {
+    className: "flex gap-2"
+  }, React.createElement(Btn, {
+    kind: "pri",
+    disabled: busy || !pr.p1 || !!pr.erro || !inicio,
+    onClick: salvar
+  }, r ? 'Salvar alteração' : 'Registrar contrato de experiência'), r && React.createElement(Btn, {
+    onClick: () => setEdit(false)
+  }, "Cancelar")));
+  if (!r) return React.createElement("div", null, expSemContrato(row.tipo_vinculo) ? React.createElement(Vazio, null, "Contrato de experiência não se aplica a aprendiz e estagiário.") : !row.ativo ? React.createElement(Vazio, null, "Sem contrato de experiência registrado.") : React.createElement(React.Fragment, null, React.createElement("p", {
+    className: "text-sm text-mute mb-3"
+  }, "Nenhum contrato de experiência registrado para esta matrícula. Registre para acompanhar os prazos e pedir a avaliação ao gestor."), form));
+  const bloco = (n, ini, fim, res, obs, por, em, sol) => React.createElement("div", {
+    className: "rounded border border-line bg-white p-3"
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2 text-sm"
+  }, React.createElement("b", null, n, "º período"), React.createElement("span", {
+    className: "tabular-nums"
+  }, fd(ini), " a ", fd(fim)), res ? React.createElement(Badge, {
+    tone: res === 'favoravel' ? 'ok' : 'perigo'
+  }, res === 'favoravel' ? 'Favorável' : 'Desfavorável') : sol ? React.createElement(Badge, {
+    tone: "aviso"
+  }, "Avaliação solicitada em ", fd(sol)) : React.createElement(Badge, null, "Avaliação pendente")), res && React.createElement("p", {
+    className: "text-sm mt-1"
+  }, obs || 'Sem observações.', React.createElement("span", {
+    className: "block text-xs text-mute mt-0.5"
+  }, "por ", por || '—', " em ", fdt(em))));
+  return React.createElement("div", {
+    className: "space-y-3"
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2 text-sm"
+  }, React.createElement(Badge, {
+    tone: r.situacao === 'vencido' ? 'perigo' : r.situacao === 'efetivado' ? 'ok' : 'neutro'
+  }, EXP_SIT[r.situacao]), React.createElement("span", null, "Formato ", React.createElement("b", null, r.formato), " dias · início em ", fd(r.data_inicio)), diasBadge(r, aviso), r.efetivado_em && React.createElement("span", {
+    className: "text-mute"
+  }, "efetivado em ", fd(r.efetivado_em))), bloco(1, r.data_inicio, r.fim1, r.aval1_resultado, r.aval1_obs, r.aval1_por_nome, r.aval1_em, r.aval1_solicitada_em), r.prazo2_dias > 0 && bloco(2, somaDias(r.fim1, 1), r.fim2, r.aval2_resultado, r.aval2_obs, r.aval2_por_nome, r.aval2_em, r.aval2_solicitada_em), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, React.createElement(AcoesExperiencia, {
+    r: r,
+    perfil: perfil,
+    onDone: () => {
+      q.reload();
+    }
+  }), row.ativo && r.situacao !== 'efetivado' && !edit && React.createElement(Btn, {
+    onClick: abrirEdicao
+  }, "Alterar formato")), edit && React.createElement("div", {
+    className: "rounded border border-line bg-canvas p-3"
+  }, form));
+}
 const COLS_MODELO = [['Cód eSocial', 'Sim', 'Texto ou número', 'Matrícula do colaborador na folha. Única por vínculo; matrículas já cadastradas são ignoradas.'], ['Cód Epr', 'Não', 'Texto ou número', 'Código auxiliar da folha.'], ['Nome', 'Sim', 'Texto', 'Nome completo.'], ['CPF', 'Sim', '11 dígitos, com ou sem pontuação', 'Zeros à esquerda perdidos pelo Excel são restaurados. CPF inválido rejeita a linha.'], ['Data nascimento', 'Sim', 'Data (dd/mm/aaaa)', 'Menores de 16 só são aceitos como aprendiz (cargo com “APRENDIZ”); na carga histórica vira alerta, não rejeição.'], ['Admissão', 'Sim', 'Data (dd/mm/aaaa)', 'Não pode ser futura.'], ['Salário', 'Sim', 'Número (ex.: 2418,20)', 'Valor abaixo de 100 é tratado como valor/hora e marcado para confirmação.'], ['Adicional', 'Não', 'Insalubridade, Periculosidade ou vazio', 'Qualquer outro valor (inclusive “Não se Aplica”) vira “Nenhum”.'], ['Descrição cargo', 'Sim', 'Texto', 'Cargo com “APRENDIZ” vira Menor Aprendiz; com “ESTAGI”, Estagiário; demais, CLT.'], ['CBO', 'Não', 'Texto ou número', ''], ['Setor', 'Não', 'Texto', 'Subdivisão do departamento.'], ['Descrição Dpto', 'Sim', 'Texto', 'Departamento = centro de custo. Grafias diferentes são normalizadas (maiúsculas, espaços e de-para).'], ['Gestor', 'Não', 'Nome do gestor direto', 'Preencha para ativos. Variações de grafia podem ser unificadas depois em Cadastros › Gestores.'], ['Telefone Gestor', 'Não', 'DDD + número', 'Usado no WhatsApp do lembrete. Vira 55 + DDD + número.'], ['Data Demissão', 'Não', 'Data (dd/mm/aaaa)', 'Vazio = colaborador ativo. Preenchida = desligado.'], ['Motivo Demissão', 'Não', 'Texto', 'Reconhecido: Demitido SEM/COM justa causa, Pedido de demissão, Rescisão contrato experiência (empregador/empregado), Término do contrato de experiência, Morte. Texto após “ / ” vai para as observações. Vazio em desligado = “Não informado”.'], ['Contrataria Novamente', 'Não', 'SIM ou NÃO', '“NÃO” marca observação negativa para futuras admissões do mesmo CPF.']];
 function gerarModeloColaboradores() {
   const cab = COLS_MODELO.map(c => c[0]);
@@ -6300,10 +6954,10 @@ function useHash() {
   return h;
 }
 const MENU = {
-  admin: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos'], ['importacao', 'Importar colaboradores'], ['cadastros', 'Cadastros'], ['auditoria', 'Auditoria']],
-  dp: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias']],
+  admin: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos'], ['importacao', 'Importar colaboradores'], ['cadastros', 'Cadastros'], ['auditoria', 'Auditoria']],
+  dp: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência']],
   rs: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos']],
-  gestor: [['colaboradores', 'Minha equipe'], ['ferias', 'Férias'], ['vagas', 'Vagas']]
+  gestor: [['colaboradores', 'Minha equipe'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['vagas', 'Vagas']]
 };
 function Shell({
   perfil,
@@ -6321,6 +6975,9 @@ function Shell({
       perfil: perfil
     }),
     ferias: React.createElement(Ferias, {
+      perfil: perfil
+    }),
+    experiencia: React.createElement(Experiencia, {
       perfil: perfil
     }),
     vagas: React.createElement(Vagas, {
