@@ -1700,7 +1700,7 @@ function DadosTab({
   const [edit, setEdit] = useState(false);
   const [v, setV] = useState({
     nome: row.nome,
-    data_nascimento: row.data_nascimento,
+    data_nascimento: row.data_nascimento || '',
     cargo: row.cargo,
     cbo: row.cbo || '',
     tipo_vinculo: row.tipo_vinculo,
@@ -1712,12 +1712,14 @@ function DadosTab({
   });
   const [busy, setBusy] = useState(false);
   const salvar = async () => {
-    if (v.tipo_vinculo === 'pj' && dig(v.cnpj) && !cnpjOk(v.cnpj)) return toast('CNPJ inválido. Confira os 14 dígitos.', 'erro');
+    if (v.tipo_vinculo === 'pj' && !cnpjOk(v.cnpj)) return toast(dig(v.cnpj) ? 'CNPJ inválido. Confira os 14 dígitos.' : 'Informe o CNPJ do profissional PJ.', 'erro');
+    if (v.tipo_vinculo === 'pj' && !v.setor.trim()) return toast('Informe o setor do profissional PJ.', 'erro');
+    if (v.tipo_vinculo !== 'pj' && !v.data_nascimento) return toast('Informe a data de nascimento.', 'erro');
     setBusy(true);
     try {
       await run(sb.from('pessoa').update({
         nome: v.nome.trim(),
-        data_nascimento: v.data_nascimento
+        data_nascimento: v.data_nascimento || null
       }).eq('id', row.pessoa_id));
       await run(sb.from('vinculo').update({
         cargo: v.cargo.trim(),
@@ -2376,25 +2378,31 @@ function AdmissaoModal({
       on = false;
     };
   }, [cpfD]);
+  const pj = v.tipo_vinculo === 'pj';
   const prExp = prazosExp(v.exp);
   const cnpjInvalido = v.tipo_vinculo === 'pj' && dig(v.cnpj).length > 0 && !cnpjOk(v.cnpj);
-  const ok = !cnpjInvalido && !(v.exp.formato === 'outro' && prExp.erro && !expSemContrato(v.tipo_vinculo)) && cpfD.length === 11 && aviso && aviso.valido && !aviso.vinculo_ativo && v.nome.trim() && v.data_nascimento && v.matricula.trim() && v.cargo.trim() && v.departamento_id && v.data_admissao && v.salario;
+  const ok = !cnpjInvalido && !(v.exp.formato === 'outro' && prExp.erro && !expSemContrato(v.tipo_vinculo)) && cpfD.length === 11 && aviso && aviso.valido && !aviso.vinculo_ativo && v.nome.trim() && (pj || v.data_nascimento) && v.matricula.trim() && v.cargo.trim() && v.departamento_id && v.data_admissao && (pj || v.salario) && (!pj || cnpjOk(v.cnpj) && v.setor.trim());
   const salvar = async () => {
     setBusy(true);
     try {
       const {
         exp,
         cnpj,
+        salario,
         ...resto
       } = v;
       const dados = {
         ...resto,
-        ...(v.tipo_vinculo === 'pj' && dig(cnpj) ? {
+        cpf: cpfD,
+        ...(salario !== '' ? {
+          salario: Number(salario)
+        } : {}),
+        ...(pj && dig(cnpj) ? {
           cnpj: dig(cnpj)
         } : {}),
-        cpf: cpfD,
-        salario: Number(v.salario),
-        esocial: limpaEsocial(es),
+        ...(pj ? {} : {
+          esocial: limpaEsocial(es)
+        }),
         ...(prExp.p1 && !prExp.erro && !expSemContrato(v.tipo_vinculo) ? {
           experiencia: {
             prazo1: prExp.p1,
@@ -2431,7 +2439,7 @@ function AdmissaoModal({
   }, React.createElement("div", {
     className: "grid md:grid-cols-3 gap-3"
   }, React.createElement(Field, {
-    label: "CPF"
+    label: "CPF *"
   }, React.createElement(Input, {
     value: v.cpf,
     inputMode: "numeric",
@@ -2439,7 +2447,7 @@ function AdmissaoModal({
     placeholder: "000.000.000-00",
     onChange: e => set('cpf', cpfDigitando(e.target.value))
   })), React.createElement(Field, {
-    label: "Nome completo",
+    label: "Nome completo *",
     className: "md:col-span-2"
   }, React.createElement(Input, {
     value: v.nome,
@@ -2453,32 +2461,34 @@ function AdmissaoModal({
     className: "mt-2 rounded border border-line bg-canvas p-2 text-sm"
   }, "Pessoa já cadastrada (", aviso.nome, "). Será criado um novo vínculo (readmissão); nome e nascimento vêm do cadastro. Último desligamento: ", fd(aviso.ultimo_desligamento), "."), aviso && aviso.observacao_negativa && React.createElement("div", {
     className: "mt-2 rounded border border-amber/50 bg-amber/10 p-2 text-sm"
-  }, React.createElement("b", null, "Atenção:"), " há observação negativa em desligamento anterior.", aviso.detalhe_negativo ? ' ' + aviso.detalhe_negativo : '', " O cadastro não é bloqueado."), React.createElement("div", {
-    className: "grid md:grid-cols-3 gap-3 mt-3"
-  }, React.createElement(Field, {
-    label: "Data de nascimento"
+  }, React.createElement("b", null, "Atenção:"), " há observação negativa em desligamento anterior.", aviso.detalhe_negativo ? ' ' + aviso.detalhe_negativo : '', " O cadastro não é bloqueado."), React.createElement("p", {
+    className: "text-xs text-mute mt-3 mb-1"
+  }, "* campos obrigatórios", pj ? ' para profissional PJ; os demais ficam em “Opcionais”' : ''), React.createElement("div", {
+    className: "grid md:grid-cols-3 gap-3"
+  }, !pj && React.createElement(Field, {
+    label: "Data de nascimento *"
   }, React.createElement(Input, {
     type: "date",
     value: v.data_nascimento,
     disabled: travado,
     onChange: e => set('data_nascimento', e.target.value)
   })), React.createElement(Field, {
-    label: "Matrícula (código da folha)"
+    label: "Matrícula (código da folha) *"
   }, React.createElement(Input, {
     value: v.matricula,
     onChange: e => set('matricula', e.target.value)
   })), React.createElement(Field, {
     label: "Tipo de vínculo",
-    hint: v.tipo_vinculo === 'aprendiz' ? 'Menor Aprendiz: idade mínima 14 anos.' : 'Demais vínculos: idade mínima 16 anos.'
+    hint: pj ? 'Profissional PJ: cadastro simplificado.' : v.tipo_vinculo === 'aprendiz' ? 'Menor Aprendiz: idade mínima 14 anos.' : 'Demais vínculos: idade mínima 16 anos.'
   }, React.createElement(Select, {
     value: v.tipo_vinculo,
     onChange: e => set('tipo_vinculo', e.target.value)
   }, Object.entries(L.tipo).map(([k, n]) => React.createElement("option", {
     key: k,
     value: k
-  }, n)))), v.tipo_vinculo === 'pj' && React.createElement(Field, {
-    label: "CNPJ",
-    hint: cnpjInvalido ? undefined : 'Profissional PJ. Informe os 14 dígitos.'
+  }, n)))), pj && React.createElement(Field, {
+    label: "CNPJ *",
+    hint: cnpjInvalido ? undefined : 'Informe os 14 dígitos.'
   }, React.createElement(Input, {
     inputMode: "numeric",
     maxLength: 18,
@@ -2488,22 +2498,22 @@ function AdmissaoModal({
   }), cnpjInvalido && React.createElement("span", {
     className: "block text-xs text-danger mt-1"
   }, "CNPJ inválido. Confira os 14 dígitos.")), React.createElement(Field, {
-    label: "Cargo"
+    label: "Cargo *"
   }, React.createElement(Input, {
     value: v.cargo,
     onChange: e => set('cargo', e.target.value)
-  })), React.createElement(Field, {
+  })), !pj && React.createElement(Field, {
     label: "CBO"
   }, React.createElement(Input, {
     value: v.cbo,
     onChange: e => set('cbo', e.target.value)
-  })), React.createElement(Field, {
+  })), !pj && React.createElement(Field, {
     label: "Adicional"
   }, React.createElement(Select, {
     value: v.adicional,
     onChange: e => set('adicional', e.target.value)
   }, React.createElement("option", null, "Nenhum"), React.createElement("option", null, "Insalubridade"), React.createElement("option", null, "Periculosidade"))), React.createElement(Field, {
-    label: "Departamento / centro de custo"
+    label: "Departamento / centro de custo *"
   }, React.createElement(Select, {
     value: v.departamento_id,
     onChange: e => set('departamento_id', e.target.value)
@@ -2513,7 +2523,7 @@ function AdmissaoModal({
     key: d.id,
     value: d.id
   }, d.nome)))), React.createElement(Field, {
-    label: "Setor"
+    label: pj ? 'Setor *' : 'Setor'
   }, React.createElement(Input, {
     value: v.setor,
     onChange: e => set('setor', e.target.value)
@@ -2528,20 +2538,20 @@ function AdmissaoModal({
     key: g.id,
     value: g.id
   }, g.nome)))), React.createElement(Field, {
-    label: "Data de admissão"
+    label: "Data de admissão *"
   }, React.createElement(Input, {
     type: "date",
     value: v.data_admissao,
     onChange: e => set('data_admissao', e.target.value)
-  })), React.createElement(Field, {
-    label: "Salário inicial"
+  })), !pj && React.createElement(Field, {
+    label: "Salário inicial *"
   }, React.createElement(Input, {
     type: "number",
     min: "0",
     step: "0.01",
     value: v.salario,
     onChange: e => set('salario', e.target.value)
-  })), React.createElement(Field, {
+  })), !pj && React.createElement(Field, {
     label: "Base do salário"
   }, React.createElement(Select, {
     value: v.salario_unidade,
@@ -2550,14 +2560,51 @@ function AdmissaoModal({
     value: "mensal"
   }, "Mensal"), React.createElement("option", {
     value: "hora"
-  }, "Por hora")))), !expSemContrato(v.tipo_vinculo) && React.createElement("div", {
+  }, "Por hora")))), pj && React.createElement("div", {
+    className: "mt-4 rounded border border-line bg-canvas p-3"
+  }, React.createElement("div", {
+    className: "text-sm font-medium mb-2"
+  }, "Opcionais"), React.createElement("div", {
+    className: "grid md:grid-cols-3 gap-3"
+  }, React.createElement(Field, {
+    label: "Data de nascimento"
+  }, React.createElement(Input, {
+    type: "date",
+    value: v.data_nascimento,
+    disabled: travado,
+    onChange: e => set('data_nascimento', e.target.value)
+  })), React.createElement(Field, {
+    label: "CBO"
+  }, React.createElement(Input, {
+    value: v.cbo,
+    onChange: e => set('cbo', e.target.value)
+  })), React.createElement(Field, {
+    label: "Valor do contrato (opcional)"
+  }, React.createElement("div", {
+    className: "flex gap-1"
+  }, React.createElement(Input, {
+    type: "number",
+    min: "0",
+    step: "0.01",
+    value: v.salario,
+    onChange: e => set('salario', e.target.value)
+  }), React.createElement(Select, {
+    className: "w-28",
+    "aria-label": "Base do valor",
+    value: v.salario_unidade,
+    onChange: e => set('salario_unidade', e.target.value)
+  }, React.createElement("option", {
+    value: "mensal"
+  }, "Mensal"), React.createElement("option", {
+    value: "hora"
+  }, "Por hora")))))), !expSemContrato(v.tipo_vinculo) && React.createElement("div", {
     className: "mt-3"
   }, React.createElement(ExperienciaCampos, {
     valor: v.exp,
     onChange: x => set('exp', x),
     inicio: v.data_admissao,
     tipoVinculo: v.tipo_vinculo
-  })), React.createElement("div", {
+  })), !pj && React.createElement("div", {
     className: "mt-4"
   }, React.createElement("button", {
     className: "text-sm underline text-brand",
