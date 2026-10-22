@@ -75,6 +75,7 @@ function traduzErro(e) {
   const m = e && (e.message || e.error_description) || String(e);
   if (/row-level security/i.test(m)) return 'Você não tem permissão para esta ação.';
   if (/perfil_gestor_id_key/i.test(m)) return 'Este gestor já está vinculado a outro usuário.';
+  if (/vinculo_cnpj_valido/i.test(m)) return 'CNPJ inválido.';
   if (/duplicate key/i.test(m)) return 'Já existe um registro com este valor.';
   if (/violates foreign key/i.test(m)) return 'Este registro está em uso e não pode ser alterado desta forma.';
   if (/should be different from the old password/i.test(m)) return 'A nova senha deve ser diferente da senha atual.';
@@ -208,6 +209,17 @@ const cpfOk = c => {
     if (d !== Number(c[n])) return false;
   }
   return true;
+};
+const cnpjOk = c => {
+  c = dig(c);
+  if (!/^\d{14}$/.test(c) || /^(\d)\1{13}$/.test(c)) return false;
+  const dv = (b, w) => {
+    const s = b.split('').reduce((t, x, i) => t + Number(x) * w[i], 0) % 11;
+    return s < 2 ? 0 : 11 - s;
+  };
+  const d1 = dv(c.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const d2 = dv(c.slice(0, 12) + d1, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return c[12] === String(d1) && c[13] === String(d2);
 };
 const numBR = v => {
   if (v === null || v === undefined || v === '') return null;
@@ -1070,7 +1082,7 @@ function Colaboradores({
   const rows = useMemo(() => {
     const t = norm(f.q),
       td = dig(f.q);
-    const lista = (q.data || []).filter(r => (f.status === 'todos' || f.status === 'ativos' === r.ativo) && (!f.dep || String(r.departamento_id) === f.dep) && (!f.tipo || r.tipo_vinculo === f.tipo) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.alerta || r.revisar.length > 0 || r.tem_observacao_negativa) && (!t || norm(r.nome).includes(t) || norm(r.matricula).includes(t) || td && r.cpf.includes(td) || norm(r.cargo).includes(t))).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    const lista = (q.data || []).filter(r => (f.status === 'todos' || f.status === 'ativos' === r.ativo) && (!f.dep || String(r.departamento_id) === f.dep) && (!f.tipo || r.tipo_vinculo === f.tipo) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.alerta || r.revisar.length > 0 || r.tem_observacao_negativa) && (!t || norm(r.nome).includes(t) || norm(r.matricula).includes(t) || td && (r.cpf.includes(td) || (r.cnpj || '').includes(td)) || norm(r.cargo).includes(t))).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     return ord.aplica(lista, ORD_COLAB);
   }, [q.data, f, ord.o]);
   const set = (k, v) => {
@@ -1084,7 +1096,8 @@ function Colaboradores({
     Matricula: r.matricula,
     Nome: r.nome,
     ...(rh ? {
-      CPF: maskCpf(r.cpf)
+      CPF: maskCpf(r.cpf),
+      CNPJ: maskCnpj(r.cnpj)
     } : {}),
     Nascimento: fd(r.data_nascimento),
     Tipo: L.tipo[r.tipo_vinculo],
@@ -1123,7 +1136,7 @@ function Colaboradores({
     className: "p-3 grid gap-2 md:grid-cols-6 border-b border-line"
   }, React.createElement(Input, {
     className: "md:col-span-2",
-    placeholder: rh ? 'Buscar por nome, CPF, matrícula ou cargo' : 'Buscar por nome, matrícula ou cargo',
+    placeholder: rh ? 'Buscar por nome, CPF/CNPJ, matrícula ou cargo' : 'Buscar por nome, matrícula ou cargo',
     value: f.q,
     onChange: e => set('q', e.target.value),
     "aria-label": "Buscar"
@@ -1692,12 +1705,14 @@ function DadosTab({
     cbo: row.cbo || '',
     tipo_vinculo: row.tipo_vinculo,
     adicional: row.adicional,
+    cnpj: row.cnpj ? cnpjDigitando(row.cnpj) : '',
     departamento_id: String(row.departamento_id),
     setor: row.setor || '',
     gestor_id: row.gestor_id ? String(row.gestor_id) : ''
   });
   const [busy, setBusy] = useState(false);
   const salvar = async () => {
+    if (v.tipo_vinculo === 'pj' && dig(v.cnpj) && !cnpjOk(v.cnpj)) return toast('CNPJ inválido. Confira os 14 dígitos.', 'erro');
     setBusy(true);
     try {
       await run(sb.from('pessoa').update({
@@ -1708,6 +1723,7 @@ function DadosTab({
         cargo: v.cargo.trim(),
         cbo: nz(v.cbo),
         tipo_vinculo: v.tipo_vinculo,
+        cnpj: v.tipo_vinculo === 'pj' ? dig(v.cnpj) || null : null,
         adicional: v.adicional,
         departamento_id: Number(v.departamento_id),
         setor: nz(v.setor),
@@ -1724,7 +1740,7 @@ function DadosTab({
   if (!edit) return React.createElement("div", null, React.createElement("div", {
     className: "grid md:grid-cols-2 gap-x-8 gap-y-4"
   }, React.createElement(Dl, {
-    itens: [['CPF', rh ? maskCpf(row.cpf) : '—'], ['Nascimento', fd(row.data_nascimento) + (row.idade !== null ? ` (${row.idade} anos)` : '')], ['Cargo', row.cargo], ['CBO', row.cbo], ['Adicional', row.adicional]]
+    itens: [['CPF', rh ? maskCpf(row.cpf) : '—'], ...(row.tipo_vinculo === 'pj' ? [['CNPJ', rh ? maskCnpj(row.cnpj) || 'Não informado' : '—']] : []), ['Nascimento', fd(row.data_nascimento) + (row.idade !== null ? ` (${row.idade} anos)` : '')], ['Cargo', row.cargo], ['CBO', row.cbo], ['Adicional', row.adicional]]
   }), React.createElement(Dl, {
     itens: [['Departamento', row.departamento + (row.codigo_cc ? ' · CC ' + row.codigo_cc : '')], ['Setor', row.setor], ['Gestor', row.gestor], ['Admissão', fd(row.data_admissao)], ['Cód. Epr', rh ? row.cod_epr : null]]
   })), rh && row.revisar.length > 0 && React.createElement("div", {
@@ -1792,7 +1808,19 @@ function DadosTab({
       ...v,
       adicional: e.target.value
     })
-  }, React.createElement("option", null, "Nenhum"), React.createElement("option", null, "Insalubridade"), React.createElement("option", null, "Periculosidade"))), React.createElement(Field, {
+  }, React.createElement("option", null, "Nenhum"), React.createElement("option", null, "Insalubridade"), React.createElement("option", null, "Periculosidade"))), v.tipo_vinculo === 'pj' && React.createElement(Field, {
+    label: "CNPJ",
+    hint: "Profissional PJ. Informe os 14 dígitos."
+  }, React.createElement(Input, {
+    inputMode: "numeric",
+    maxLength: 18,
+    placeholder: "00.000.000/0001-00",
+    value: v.cnpj,
+    onChange: e => setV({
+      ...v,
+      cnpj: cnpjDigitando(e.target.value)
+    })
+  })), React.createElement(Field, {
     label: "Departamento / centro de custo"
   }, React.createElement(Select, {
     value: v.departamento_id,
@@ -2301,6 +2329,7 @@ function AdmissaoModal({
     data_admissao: hojeISO(),
     salario: '',
     salario_unidade: 'mensal',
+    cnpj: '',
     exp: {
       formato: 'nenhum',
       p1: '',
@@ -2348,16 +2377,21 @@ function AdmissaoModal({
     };
   }, [cpfD]);
   const prExp = prazosExp(v.exp);
-  const ok = !(v.exp.formato === 'outro' && prExp.erro && !expSemContrato(v.tipo_vinculo)) && cpfD.length === 11 && aviso && aviso.valido && !aviso.vinculo_ativo && v.nome.trim() && v.data_nascimento && v.matricula.trim() && v.cargo.trim() && v.departamento_id && v.data_admissao && v.salario;
+  const cnpjInvalido = v.tipo_vinculo === 'pj' && dig(v.cnpj).length > 0 && !cnpjOk(v.cnpj);
+  const ok = !cnpjInvalido && !(v.exp.formato === 'outro' && prExp.erro && !expSemContrato(v.tipo_vinculo)) && cpfD.length === 11 && aviso && aviso.valido && !aviso.vinculo_ativo && v.nome.trim() && v.data_nascimento && v.matricula.trim() && v.cargo.trim() && v.departamento_id && v.data_admissao && v.salario;
   const salvar = async () => {
     setBusy(true);
     try {
       const {
         exp,
+        cnpj,
         ...resto
       } = v;
       const dados = {
         ...resto,
+        ...(v.tipo_vinculo === 'pj' && dig(cnpj) ? {
+          cnpj: dig(cnpj)
+        } : {}),
         cpf: cpfD,
         salario: Number(v.salario),
         esocial: limpaEsocial(es),
@@ -2442,7 +2476,18 @@ function AdmissaoModal({
   }, Object.entries(L.tipo).map(([k, n]) => React.createElement("option", {
     key: k,
     value: k
-  }, n)))), React.createElement(Field, {
+  }, n)))), v.tipo_vinculo === 'pj' && React.createElement(Field, {
+    label: "CNPJ",
+    hint: cnpjInvalido ? undefined : 'Profissional PJ. Informe os 14 dígitos.'
+  }, React.createElement(Input, {
+    inputMode: "numeric",
+    maxLength: 18,
+    placeholder: "00.000.000/0001-00",
+    value: v.cnpj,
+    onChange: e => set('cnpj', cnpjDigitando(e.target.value))
+  }), cnpjInvalido && React.createElement("span", {
+    className: "block text-xs text-danger mt-1"
+  }, "CNPJ inválido. Confira os 14 dígitos.")), React.createElement(Field, {
     label: "Cargo"
   }, React.createElement(Input, {
     value: v.cargo,
@@ -5000,7 +5045,7 @@ const EXP_FORMATOS = {
   '45+45': '45 + 45 dias',
   'outro': 'Outro prazo'
 };
-const expSemContrato = tipo => tipo === 'aprendiz' || tipo === 'estagiario';
+const expSemContrato = tipo => tipo === 'aprendiz' || tipo === 'estagiario' || tipo === 'pj';
 function prazosExp(v) {
   if (v.formato === 'nenhum') return {
     p1: null,
@@ -5536,7 +5581,7 @@ function ExperienciaTab({
   }, r ? 'Salvar alteração' : 'Registrar contrato de experiência'), r && React.createElement(Btn, {
     onClick: () => setEdit(false)
   }, "Cancelar")));
-  if (!r) return React.createElement("div", null, expSemContrato(row.tipo_vinculo) ? React.createElement(Vazio, null, "Contrato de experiência não se aplica a aprendiz e estagiário.") : !row.ativo ? React.createElement(Vazio, null, "Sem contrato de experiência registrado.") : React.createElement(React.Fragment, null, React.createElement("p", {
+  if (!r) return React.createElement("div", null, expSemContrato(row.tipo_vinculo) ? React.createElement(Vazio, null, "Contrato de experiência não se aplica a PJ, aprendiz e estagiário.") : !row.ativo ? React.createElement(Vazio, null, "Sem contrato de experiência registrado.") : React.createElement(React.Fragment, null, React.createElement("p", {
     className: "text-sm text-mute mb-3"
   }, "Nenhum contrato de experiência registrado para esta matrícula. Registre para acompanhar os prazos e pedir a avaliação ao gestor."), form));
   const bloco = (n, ini, fim, res, obs, por, em, sol) => React.createElement("div", {
@@ -6040,6 +6085,73 @@ function CadTabela({
       onClick: () => salvar(r)
     }, "Salvar"), extra && extra(r, q.reload))));
   }))));
+}
+function ExcluirDep({
+  r,
+  onDone
+}) {
+  const toast = useToast();
+  const {
+    reload
+  } = useLook();
+  const [aberto, setAberto] = useState(false);
+  const [uso, setUso] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const abrir = async () => {
+    setAberto(true);
+    setUso(null);
+    try {
+      setUso(await rpc('uso_departamento', {
+        p_id: r.id
+      }));
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+      setAberto(false);
+    }
+  };
+  const emUso = !!uso && (uso.colaboradores > 0 || uso.vagas > 0);
+  const excluir = async () => {
+    setBusy(true);
+    try {
+      await rpc('excluir_departamento', {
+        p_id: r.id
+      });
+      toast('Departamento excluído.');
+      setAberto(false);
+      reload();
+      onDone();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return React.createElement(React.Fragment, null, React.createElement(Btn, {
+    className: "text-danger",
+    onClick: abrir
+  }, "Excluir"), aberto && React.createElement(Modal, {
+    title: `Excluir “${r.nome}”`,
+    onClose: () => setAberto(false),
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: () => setAberto(false)
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "danger",
+      disabled: !uso || emUso || busy,
+      onClick: excluir
+    }, "Excluir departamento"))
+  }, !uso ? React.createElement(Spinner, {
+    text: "Verificando uso…"
+  }) : emUso ? React.createElement("div", {
+    className: "rounded border border-danger/40 bg-danger/5 p-3 text-sm"
+  }, React.createElement("b", null, "Este departamento está em uso e não pode ser excluído:"), React.createElement("ul", {
+    className: "list-disc pl-5 mt-1"
+  }, uso.colaboradores > 0 && React.createElement("li", null, fn0(uso.colaboradores), " colaborador(es) (", fn0(uso.ativos), " ativo(s)), contando os já desligados"), uso.vagas > 0 && React.createElement("li", null, fn0(uso.vagas), " vaga(s)")), React.createElement("p", {
+    className: "mt-2"
+  }, "Use ", React.createElement("b", null, "Unificar"), " para mover tudo para outro departamento (o cadastro antigo é removido ao final) ou desmarque ", React.createElement("b", null, "Ativo"), " para tirá-lo das listas.")) : React.createElement("div", {
+    className: "text-sm space-y-2"
+  }, React.createElement("p", null, "Nenhum colaborador nem vaga usa este departamento. A exclusão não pode ser desfeita e fica registrada na Auditoria."), (uso.usuarios > 0 || uso.mapeamentos > 0) && React.createElement("p", {
+    className: "text-mute"
+  }, "Também serão removidos: ", uso.usuarios > 0 ? `${fn0(uso.usuarios)} vínculo(s) de usuário responsável` : '', uso.usuarios > 0 && uso.mapeamentos > 0 ? ' e ' : '', uso.mapeamentos > 0 ? `${fn0(uso.mapeamentos)} mapeamento(s) de importação` : '', "."))));
 }
 function Mescla({
   r,
@@ -6698,12 +6810,15 @@ function Cadastros({
       nome: 'Ativo',
       tipo: 'chk'
     }],
-    extra: (r, rl) => React.createElement(Mescla, {
+    extra: (r, rl) => React.createElement(React.Fragment, null, React.createElement(Mescla, {
       r: r,
       tipo: "dep",
       opcoes: deps,
       onDone: rl
-    })
+    }), React.createElement(ExcluirDep, {
+      r: r,
+      onDone: rl
+    }))
   }), aba === 'ges' && React.createElement(CadTabela, {
     key: "ges",
     tabela: "gestor",
