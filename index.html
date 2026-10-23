@@ -5173,6 +5173,36 @@ function ExperienciaCampos({
     className: "md:col-span-3 text-sm text-mute"
   }, "1º período até ", React.createElement("b", null, fd(fim1)), fim2 ? React.createElement(React.Fragment, null, " · prorrogação até ", React.createElement("b", null, fd(fim2))) : '', " (o 1º dia é a data de início)."));
 }
+const FORMS_EXP_PADRAO = 'https://forms.gle/n7Y4iQNUzkxQJjuw9';
+const EXP_TPL_ZAP = 'Olá, {gestor}! Preciso da sua avaliação do período de experiência de {colaborador} ({periodo}º período, termina em {fim}). Por favor, preencha o formulário: {link}';
+const EXP_TPL_EMAIL = 'Assunto: Avaliação do período de experiência – {colaborador}\n\nOlá, {gestor}!\n\nO período de experiência de {colaborador} ({cargo}, {departamento}) está no {periodo}º período e termina em {fim}.\n\nPrecisamos da sua avaliação até essa data. Por favor, preencha o formulário:\n{link}\n\nQualquer dúvida, estou à disposição.\n\nAtenciosamente,\n{remetente}';
+const preencheTpl = (tpl, vars) => {
+  let t = String(tpl).replace(/\\n/g, '\n');
+  Object.entries(vars).forEach(([k, x]) => {
+    t = t.split('{' + k + '}').join(x === null || x === undefined ? '' : String(x));
+  });
+  return t.includes(vars.link) ? t : t + '\n' + vars.link;
+};
+async function copiarTexto(t) {
+  try {
+    await navigator.clipboard.writeText(t);
+    return true;
+  } catch (e) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e2) {
+      return false;
+    }
+  }
+}
 function AcoesExperiencia({
   r,
   perfil,
@@ -5185,6 +5215,7 @@ function AcoesExperiencia({
   const rh = ehPessoal(perfil.papel);
   const direto = perfil.papel === 'gestor' && !!perfil.gestor_id && r.gestor_id === perfil.gestor_id;
   const [modal, setModal] = useState(null);
+  const [canal, setCanal] = useState(null);
   const [f, setF] = useState({
     resultado: '',
     obs: '',
@@ -5193,20 +5224,41 @@ function AcoesExperiencia({
   const emAndamento = ['primeiro_periodo', 'segundo_periodo', 'vencido'].includes(r.situacao);
   const registrada = r.aval_status === 'favoravel' || r.aval_status === 'desfavoravel';
   const n = r.periodo_atual;
-  const pedir = async () => {
+  const registrarPedido = async msgOk => {
     try {
       await rpc('solicitar_avaliacao_experiencia', {
         p_vinculo: r.vinculo_id,
         p_periodo: n
       });
-      toast('Pedido de avaliação registrado.');
+      toast(msgOk || 'Pedido de avaliação registrado.');
       onDone();
     } catch (e) {
       toast(traduzErro(e), 'erro');
     }
   };
-  const tpl = params.whatsapp_mensagem_experiencia || 'Olá, {gestor}! Preciso da sua avaliação do período de experiência de {colaborador} ({periodo}º período, termina em {fim}).';
-  const wa = r.gestor_telefone ? waLink(r.gestor_telefone, tpl.replace('{gestor}', String(r.gestor || '').split(' ')[0]).replace('{colaborador}', r.nome).replace('{periodo}', n).replace('{fim}', fd(r.fim_periodo_atual))) : null;
+  const vars = {
+    gestor: String(r.gestor || '').split(' ')[0] || 'gestor',
+    colaborador: r.nome,
+    cargo: r.cargo || '',
+    departamento: r.departamento || '',
+    periodo: n,
+    fim: fd(r.fim_periodo_atual),
+    link: params.link_formulario_experiencia || FORMS_EXP_PADRAO,
+    remetente: perfil.nome
+  };
+  const msgZap = preencheTpl(params.whatsapp_mensagem_experiencia || EXP_TPL_ZAP, vars);
+  const msgEmail = preencheTpl(params.email_mensagem_experiencia || EXP_TPL_EMAIL, vars);
+  const wa = r.gestor_telefone ? waLink(r.gestor_telefone, msgZap) : null;
+  const fechaPedido = () => {
+    setModal(null);
+    setCanal(null);
+  };
+  const copiarEmail = async () => {
+    if (await copiarTexto(msgEmail)) {
+      await registrarPedido('Texto copiado e pedido de avaliação registrado.');
+      fechaPedido();
+    } else toast('Não foi possível copiar automaticamente. Selecione o texto e copie manualmente.', 'erro');
+  };
   const abreAvaliar = () => {
     setF({
       resultado: r['aval' + n + '_resultado'] || '',
@@ -5246,19 +5298,13 @@ function AcoesExperiencia({
   if (!emAndamento) return null;
   return React.createElement("div", {
     className: "flex flex-wrap items-center gap-1"
-  }, rh && !registrada && (wa ? React.createElement("a", {
-    className: "btn btn-sec",
-    href: wa,
-    target: "_blank",
-    rel: "noopener",
-    onClick: pedir,
-    title: "Registra o pedido e abre o WhatsApp do gestor com a mensagem pronta"
-  }, "Pedir avaliação (WhatsApp)") : React.createElement(React.Fragment, null, React.createElement(Btn, {
-    onClick: pedir
-  }, "Registrar pedido de avaliação"), React.createElement(Badge, {
-    tone: "aviso",
-    title: "Cadastre o telefone em Cadastros › Gestores"
-  }, "Gestor sem telefone"))), direto && !registrada && React.createElement(Btn, {
+  }, rh && !registrada && React.createElement(Btn, {
+    onClick: () => {
+      setCanal(null);
+      setModal('pedir');
+    },
+    title: "Pedir ao gestor a avaliação do período, por WhatsApp ou e-mail"
+  }, "Pedir avaliação"), direto && !registrada && React.createElement(Btn, {
     kind: "pri",
     onClick: abreAvaliar
   }, "Avaliar"), rh && React.createElement(Btn, {
@@ -5272,7 +5318,78 @@ function AcoesExperiencia({
       });
       setModal('efetivar');
     }
-  }, "Efetivar"), modal === 'avaliar' && React.createElement(Modal, {
+  }, "Efetivar"), modal === 'pedir' && React.createElement(Modal, {
+    title: `Pedir avaliação · ${r.nome}`,
+    onClose: fechaPedido,
+    footer: React.createElement(Btn, {
+      onClick: fechaPedido
+    }, "Fechar")
+  }, React.createElement("p", {
+    className: "text-sm mb-3"
+  }, n, "º período (", r.formato, " dias), termina em ", React.createElement("b", null, fd(r.fim_periodo_atual)), ". Gestor direto: ", React.createElement("b", null, r.gestor || '—'), "."), !canal && React.createElement("div", {
+    className: "grid sm:grid-cols-2 gap-3"
+  }, React.createElement("button", {
+    type: "button",
+    className: "rounded border border-line bg-white p-4 text-left hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand",
+    onClick: () => setCanal('whats')
+  }, React.createElement("div", {
+    className: "font-semibold"
+  }, "WhatsApp"), React.createElement("div", {
+    className: "text-xs text-mute mt-1"
+  }, "Abre a conversa com o gestor com a mensagem e o link do formulário.")), React.createElement("button", {
+    type: "button",
+    className: "rounded border border-line bg-white p-4 text-left hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand",
+    onClick: () => setCanal('email')
+  }, React.createElement("div", {
+    className: "font-semibold"
+  }, "E-mail"), React.createElement("div", {
+    className: "text-xs text-mute mt-1"
+  }, "Mostra o texto padrão, com o link do formulário, para você copiar e enviar."))), canal === 'whats' && React.createElement("div", {
+    className: "space-y-3"
+  }, React.createElement("p", {
+    className: "text-sm"
+  }, "Mensagem que será enviada ao gestor, com o link do formulário:"), React.createElement("pre", {
+    className: "whitespace-pre-wrap rounded border border-line bg-canvas p-3 text-sm font-body",
+    "aria-label": "Mensagem de WhatsApp"
+  }, msgZap), wa ? React.createElement("a", {
+    className: "btn btn-pri",
+    href: wa,
+    target: "_blank",
+    rel: "noopener",
+    onClick: () => {
+      registrarPedido();
+      fechaPedido();
+    }
+  }, "Abrir WhatsApp") : React.createElement("div", {
+    className: "rounded border border-danger/40 bg-danger/5 p-3 text-sm text-danger"
+  }, "Este gestor não tem telefone cadastrado. Cadastre em Cadastros › Gestores ou envie por e-mail."), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "Ao abrir o WhatsApp, o pedido fica registrado no sistema."), React.createElement("button", {
+    type: "button",
+    className: "text-xs underline",
+    onClick: () => setCanal(null)
+  }, "Voltar")), canal === 'email' && React.createElement("div", {
+    className: "space-y-3"
+  }, React.createElement("p", {
+    className: "text-sm"
+  }, "Texto padrão do e-mail (a 1ª linha é o assunto):"), React.createElement("textarea", {
+    readOnly: true,
+    className: "inp min-h-[260px] font-body",
+    "aria-label": "Texto do e-mail",
+    value: msgEmail,
+    onFocus: e => e.target.select()
+  }), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-3"
+  }, React.createElement(Btn, {
+    kind: "pri",
+    onClick: copiarEmail
+  }, "Copiar texto"), React.createElement("span", {
+    className: "text-xs text-mute"
+  }, "Ao copiar, o pedido fica registrado no sistema. O e-mail do gestor não é guardado aqui: cole o texto no seu e-mail.")), React.createElement("button", {
+    type: "button",
+    className: "text-xs underline",
+    onClick: () => setCanal(null)
+  }, "Voltar"))), modal === 'avaliar' && React.createElement(Modal, {
     title: `Avaliação de experiência · ${r.nome}`,
     onClose: () => setModal(null),
     footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
@@ -5487,7 +5604,7 @@ function Experiencia({
     value: id
   }, nm)))), rh && React.createElement("p", {
     className: "px-3 py-2 text-xs text-mute border-b border-line"
-  }, "O pedido de avaliação fica sinalizado a partir de ", aviso, " dias antes do fim de cada período (ajuste em Cadastros › Parâmetros). O botão abre o WhatsApp do gestor direto com a mensagem pronta e registra o pedido."), q.error && React.createElement(Erro, {
+  }, "O pedido de avaliação fica sinalizado a partir de ", aviso, " dias antes do fim de cada período (ajuste em Cadastros › Parâmetros). O botão Pedir avaliação oferece WhatsApp (com o link do formulário) ou e-mail (texto padrão para copiar) e registra o pedido."), q.error && React.createElement(Erro, {
     e: q.error,
     onRetry: q.reload
   }), q.loading && !q.data ? React.createElement(Spinner, null) : React.createElement("div", {
@@ -7274,6 +7391,7 @@ function App() {
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(ToastHost, null, React.createElement(App, null)));
+
 </script>
 </body>
 </html>
