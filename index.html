@@ -1875,6 +1875,12 @@ function SalarioTab({
   })), [row.vinculo_id]);
   const [novo, setNovo] = useState(null);
   const [corr, setCorr] = useState(null);
+  const [del, setDel] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const brl = v => Number(v).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
   const salvarNovo = async () => {
     try {
       await rpc('alterar_salario', {
@@ -1905,6 +1911,23 @@ function SalarioTab({
       toast(traduzErro(e), 'erro');
     }
   };
+  const excluir = async () => {
+    setBusy(true);
+    try {
+      await rpc('excluir_lancamento_salario', {
+        p_id: del.s.id,
+        p_motivo: nz(del.motivo.trim())
+      });
+      toast('Lançamento excluído. A vigência anterior voltou a valer.');
+      setDel(null);
+      q.reload();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const lista = q.data || [];
   return React.createElement("div", null, q.error && React.createElement(Erro, {
     e: q.error,
     onRetry: q.reload
@@ -1912,26 +1935,35 @@ function SalarioTab({
     className: "tbl"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Vigência"), React.createElement("th", {
     className: "text-right"
-  }, "Valor"), React.createElement("th", null, "Base"), React.createElement("th", null, "Observação"), React.createElement("th", null))), React.createElement("tbody", null, q.data.map(s => React.createElement("tr", {
+  }, "Valor"), React.createElement("th", null, "Base"), React.createElement("th", null, "Observação"), React.createElement("th", null))), React.createElement("tbody", null, lista.map((s, ix) => React.createElement("tr", {
     key: s.id
   }, React.createElement("td", {
     className: "tabular-nums"
   }, fd(s.vigencia_inicio), " a ", s.vigencia_fim ? fd(s.vigencia_fim) : 'atual'), React.createElement("td", {
     className: "text-right tabular-nums"
-  }, Number(s.valor).toLocaleString('pt-BR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })), React.createElement("td", null, s.unidade === 'hora' ? 'Por hora' : 'Mensal', " ", s.revisar && React.createElement(Badge, {
+  }, brl(s.valor)), React.createElement("td", null, s.unidade === 'hora' ? 'Por hora' : 'Mensal', " ", s.revisar && React.createElement(Badge, {
     tone: "aviso"
   }, "A confirmar")), React.createElement("td", {
     className: "text-xs text-mute"
-  }, s.observacao), React.createElement("td", null, s.revisar && React.createElement(Btn, {
+  }, s.observacao), React.createElement("td", null, React.createElement("div", {
+    className: "flex gap-1"
+  }, s.revisar && React.createElement(Btn, {
     onClick: () => setCorr({
       id: s.id,
       valor: s.valor,
       unidade: s.unidade
     })
-  }, "Confirmar")))))), row.ativo && React.createElement("div", {
+  }, "Confirmar"), ix === 0 && lista.length > 1 && React.createElement(Btn, {
+    className: "text-danger",
+    title: "Desfaz este lançamento; a vigência anterior volta a valer",
+    onClick: () => setDel({
+      s,
+      ant: lista[1],
+      motivo: ''
+    })
+  }, "Excluir"))))))), lista.length > 1 && React.createElement("p", {
+    className: "mt-2 text-xs text-mute"
+  }, "Lançou algo por engano? Só o lançamento mais recente pode ser excluído; a vigência anterior volta a valer."), row.ativo && React.createElement("div", {
     className: "mt-4"
   }, React.createElement(Btn, {
     onClick: () => setNovo({
@@ -2028,7 +2060,29 @@ function SalarioTab({
     value: "mensal"
   }, "Mensal"), React.createElement("option", {
     value: "hora"
-  }, "Por hora"))))));
+  }, "Por hora"))))), del && React.createElement(Modal, {
+    title: "Excluir lançamento de salário",
+    onClose: () => setDel(null),
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: () => setDel(null)
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "danger",
+      disabled: busy,
+      onClick: excluir
+    }, "Excluir lançamento"))
+  }, React.createElement("div", {
+    className: "text-sm space-y-3"
+  }, React.createElement("p", null, "Excluir o lançamento de ", React.createElement("b", null, fd(del.s.vigencia_inicio)), " no valor de ", React.createElement("b", null, "R$ ", brl(del.s.valor)), "?"), React.createElement("p", null, "A vigência de ", React.createElement("b", null, fd(del.ant.vigencia_inicio)), " (R$ ", brl(del.ant.valor), ") volta a valer", del.s.vigencia_fim ? ' até ' + fd(del.s.vigencia_fim) : ' como o salário atual', "."), React.createElement("p", {
+    className: "text-mute"
+  }, "A exclusão fica registrada na Auditoria e no Histórico do colaborador."), React.createElement(Field, {
+    label: "Motivo (opcional)"
+  }, React.createElement(Input, {
+    value: del.motivo,
+    onChange: e => setDel({
+      ...del,
+      motivo: e.target.value
+    })
+  })))));
 }
 function DesligTab({
   row,
