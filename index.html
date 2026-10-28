@@ -552,12 +552,13 @@ const corDepto = id => {
 };
 const PAPEL_ROTULO = {
   admin: 'Administrador',
+  admin_rh: 'Adm RH',
   dp: 'DP',
   rs: 'RS (Recrutamento e Seleção)',
   gestor: 'Gestor'
 };
-const ehPessoal = p => p === 'admin' || p === 'dp';
-const ehVagas = p => p === 'admin' || p === 'rs';
+const ehPessoal = p => ehAdm(p) || p === 'dp';
+const ehVagas = p => ehAdm(p) || p === 'rs';
 const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const MESES_LONGO = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 function MesAnoPicker({
@@ -729,7 +730,7 @@ const LookCtx = createContext({
   reload: () => {}
 });
 const useLook = () => useContext(LookCtx);
-function Painel({
+function PainelPessoas({
   perfil
 }) {
   const {
@@ -1124,7 +1125,7 @@ function Colaboradores({
   }, "Exportar Excel"), React.createElement(Btn, {
     onClick: () => exportar('csv'),
     disabled: !rows.length
-  }, "Exportar CSV"), perfil.papel === 'admin' && React.createElement("a", {
+  }, "Exportar CSV"), ehAdm(perfil.papel) && React.createElement("a", {
     className: "btn btn-sec",
     href: "#/importacao"
   }, "Importar planilha"), rh && React.createElement(Btn, {
@@ -1624,7 +1625,7 @@ function HistoricoTab({
       titulo: h.titulo,
       descricao: h.descricao || ''
     })
-  }, "Corrigir"), perfil.papel === 'admin' && React.createElement("button", {
+  }, "Corrigir"), ehAdm(perfil.papel) && React.createElement("button", {
     className: "underline text-danger",
     onClick: () => setDel(h)
   }, "Excluir"))))))), novo && React.createElement(NovaAtualizacao, {
@@ -6554,7 +6555,8 @@ function DeptsUsuarioModal({
     onChange: setSel
   }));
 }
-const perfilOpcoes = [['admin', 'Administrador'], ['dp', 'DP'], ['rs', 'RS (Recrutamento e Seleção)'], ['gestor', 'Gestor']].map(([k, n]) => React.createElement("option", {
+const PERFIS_LISTA = [['admin', 'Administrador'], ['admin_rh', 'Adm RH'], ['dp', 'DP'], ['rs', 'RS (Recrutamento e Seleção)'], ['gestor', 'Gestor']];
+const opcoesPerfil = adm => PERFIS_LISTA.filter(o => adm || o[0] !== 'admin').map(([k, n]) => React.createElement("option", {
   key: k,
   value: k
 }, n));
@@ -6576,6 +6578,7 @@ function CadUsuarios({
     pd: await run(sb.from('perfil_departamento').select('user_id,departamento_id'))
   }), []);
   const [dm, setDm] = useState(null);
+  const souAdm = ((q.data && q.data.p) || []).some(x => x.user_id === me && x.papel === 'admin');
   const ordU = useOrdem({
     k: 'nome',
     dir: 1
@@ -6744,7 +6747,7 @@ function CadUsuarios({
       ...n,
       papel: e.target.value
     })
-  }, perfilOpcoes)), React.createElement(Field, {
+  }, opcoesPerfil(souAdm))), React.createElement(Field, {
     label: "Gestor vinculado"
   }, n.papel === 'gestor' ? React.createElement(Select, {
     value: n.gestor_id,
@@ -6824,6 +6827,7 @@ function CadUsuarios({
     ord: ordU
   }, "Perfil"), React.createElement("th", null, "Gestor vinculado"), React.createElement("th", null, "Departamentos"), React.createElement("th", null, "Situação"), React.createElement("th", null))), React.createElement("tbody", null, ordU.aplica(q.data.p, ORD_USR).map(u => {
     const eu = u.user_id === me;
+    const bloq = !souAdm && u.papel === 'admin';
     const meusDeps = q.data.pd.filter(x => x.user_id === u.user_id).map(x => x.departamento_id);
     const m = ed[u.user_id];
     return React.createElement("tr", {
@@ -6838,11 +6842,11 @@ function CadUsuarios({
       className: "text-xs text-mute"
     }, " (você)")), React.createElement("td", null, React.createElement(Select, {
       "aria-label": "Perfil",
-      disabled: eu,
-      title: eu ? 'Você não pode alterar o seu próprio perfil' : undefined,
+      disabled: eu || bloq,
+      title: eu ? 'Você não pode alterar o seu próprio perfil' : bloq ? 'Só o Administrador do sistema altera um Administrador' : undefined,
       value: val(u, 'papel'),
       onChange: e => mud(u.user_id, 'papel', e.target.value)
-    }, perfilOpcoes)), React.createElement("td", null, React.createElement(Select, {
+    }, opcoesPerfil(souAdm || val(u, 'papel') === 'admin'))), React.createElement("td", null, React.createElement(Select, {
       "aria-label": "Gestor vinculado",
       disabled: val(u, 'papel') !== 'gestor',
       value: val(u, 'gestor_id') ?? '',
@@ -6868,18 +6872,20 @@ function CadUsuarios({
       className: "flex items-center gap-2 text-sm"
     }, React.createElement("input", {
       type: "checkbox",
-      disabled: eu,
+      disabled: eu || bloq,
       checked: !!val(u, 'ativo'),
       onChange: e => mud(u.user_id, 'ativo', e.target.checked)
     }), " Ativo")), React.createElement("td", null, React.createElement("div", {
       className: "flex flex-wrap gap-1"
     }, React.createElement(Btn, {
       kind: m ? 'pri' : 'sec',
-      disabled: !m,
+      disabled: !m || bloq,
       onClick: () => salvar(u)
     }, "Salvar"), React.createElement(Btn, {
+      disabled: bloq,
       onClick: () => redefinir(u)
     }, "Redefinir senha"), React.createElement(Btn, {
+      disabled: bloq,
       onClick: () => setMail({
         u,
         email: u.email
@@ -7286,9 +7292,876 @@ function useHash() {
   }, []);
   return h;
 }
+
+const ehAdm = p => p === 'admin' || p === 'admin_rh';
+const MESES_PT = {
+  jan: 1,
+  fev: 2,
+  mar: 3,
+  abr: 4,
+  mai: 5,
+  jun: 6,
+  jul: 7,
+  ago: 8,
+  set: 9,
+  out: 10,
+  nov: 11,
+  dez: 12
+};
+const ymSoma = (ym, n) => {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+};
+const rotMesCurto = ym => MESES_ABREV[Number(ym.slice(5, 7)) - 1] + '/' + ym.slice(2, 4);
+const brlInt = v => v === null || v === undefined || isNaN(v) ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', {
+  maximumFractionDigits: 0
+});
+const abrevMi = v => {
+  const a = Math.abs(v);
+  return a >= 1e6 ? (v / 1e6).toLocaleString('pt-BR', {
+    maximumFractionDigits: 1
+  }) + ' mi' : a >= 1e3 ? (v / 1e3).toLocaleString('pt-BR', {
+    maximumFractionDigits: 0
+  }) + ' mil' : String(v);
+};
+const fVar = v => v === null || v === undefined || !isFinite(v) ? '—' : (v > 0 ? '+' : '') + v.toLocaleString('pt-BR', {
+  maximumFractionDigits: 1
+}) + '%';
+function parseMesCusto(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const p2 = n => String(n).padStart(2, '0');
+  if (v instanceof Date) {
+    if (isNaN(v)) return null;
+    const d = new Date(v.getTime() + 12 * 3600e3);
+    return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-01';
+  }
+  if (typeof v === 'number') {
+    const d = new Date(Math.round((v - 25569) * 86400e3) + 12 * 3600e3);
+    return isNaN(d) ? null : d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-01';
+  }
+  const t = String(v).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  let m = t.match(/^([a-z]{3})[a-z]*[\/\-. ]+(\d{2}|\d{4})$/);
+  if (m && MESES_PT[m[1]]) {
+    const y = m[2].length === 2 ? 2000 + Number(m[2]) : Number(m[2]);
+    return y + '-' + p2(MESES_PT[m[1]]) + '-01';
+  }
+  m = t.match(/^(\d{1,2})[\/\-.](\d{4})$/);
+  if (m && +m[1] >= 1 && +m[1] <= 12) return m[2] + '-' + p2(m[1]) + '-01';
+  m = t.match(/^(\d{4})-(\d{2})(?:-\d{2})?$/);
+  if (m && +m[2] >= 1 && +m[2] <= 12) return m[1] + '-' + m[2] + '-01';
+  m = t.match(/^\d{1,2}\/(\d{1,2})\/(\d{4})$/);
+  if (m && +m[1] >= 1 && +m[1] <= 12) return m[2] + '-' + p2(m[1]) + '-01';
+  return null;
+}
+function parseValorCusto(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  if (v === null || v === undefined) return null;
+  let t = String(v).trim().replace(/R\$|\s/g, '');
+  if (!t) return null;
+  let neg = false;
+  if (/^\(.*\)$/.test(t)) {
+    neg = true;
+    t = t.slice(1, -1);
+  }
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');else if ((t.match(/\./g) || []).length > 1) t = t.replace(/\./g, '');
+  const n = Number(t);
+  return isNaN(n) ? null : neg ? -Math.abs(n) : n;
+}
+const ALOC_PADRAO = ['Custo de Pessoas', 'Despesas de Pessoas'];
+async function lerPlanilhaCustos(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {
+    type: 'array',
+    cellDates: true
+  });
+  const nomeAba = wb.SheetNames.find(n => /modelo|planilha1|dados|custo/i.test(n)) || wb.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], {
+    defval: null,
+    raw: true
+  });
+  if (!rows.length) throw new Error('A planilha está vazia.');
+  const nk = k => String(k).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const chaves = Object.keys(rows[0]);
+  const col = (...nomes) => chaves.find(k => nomes.includes(nk(k)));
+  const c = {
+    tipo: col('tipodespesa', 'tipo'),
+    conta: col('cc', 'conta', 'codigoconta', 'contacontabil'),
+    desc: col('descricaoconta', 'descricao'),
+    mes: col('atributo', 'mes', 'competencia', 'periodo'),
+    valor: col('valor'),
+    aloc: col('alocacao')
+  };
+  const faltam = [['Tipo Despesa', c.tipo], ['cc (código da conta)', c.conta], ['Descricao_Conta', c.desc], ['Atributo (mês)', c.mes], ['Valor', c.valor], ['Alocação', c.aloc]].filter(x => !x[1]).map(x => x[0]);
+  if (faltam.length) throw new Error('Colunas não encontradas: ' + faltam.join(', ') + '. Use o modelo (botão Baixar modelo).');
+  const tx = v => v === null || v === undefined ? '' : String(v).trim();
+  const linhas = [],
+    erros = [],
+    avisos = [];
+  rows.forEach((r, i) => {
+    const n = i + 2;
+    if (Object.values(r).every(v => v === null || v === '')) return;
+    const mes = parseMesCusto(r[c.mes]),
+      valor = parseValorCusto(r[c.valor]);
+    const l = {
+      n,
+      tipo_despesa: tx(r[c.tipo]),
+      conta: tx(r[c.conta]),
+      descricao: tx(r[c.desc]),
+      mes,
+      alocacao: tx(r[c.aloc]),
+      valor
+    };
+    const p = [];
+    if (!l.tipo_despesa) p.push('Tipo Despesa vazio');
+    if (!l.conta) p.push('cc vazio');
+    if (!l.descricao) p.push('Descricao_Conta vazia');
+    if (!l.alocacao) p.push('Alocação vazia');
+    if (!mes) p.push('mês inválido (“' + tx(r[c.mes]) + '”)');
+    if (valor === null) p.push('valor inválido (“' + tx(r[c.valor]) + '”)');
+    if (p.length) erros.push({
+      n,
+      msg: p.join('; ')
+    });else linhas.push(l);
+  });
+  const vistos = new Map();
+  linhas.forEach(l => {
+    const k = [l.mes, l.conta, l.descricao, l.tipo_despesa].join('|');
+    if (vistos.has(k)) erros.push({
+      n: l.n,
+      msg: 'linha repetida (mesmo mês, conta e descrição da linha ' + vistos.get(k) + ')'
+    });else vistos.set(k, l.n);
+  });
+  const alocs = [...new Set(linhas.map(l => l.alocacao))].filter(a => !ALOC_PADRAO.includes(a));
+  if (alocs.length) avisos.push('Alocação fora do padrão (' + ALOC_PADRAO.join(' / ') + '): ' + alocs.join(', '));
+  return {
+    aba: nomeAba,
+    linhas,
+    erros,
+    avisos,
+    total: rows.length
+  };
+}
+function baixarModeloCustos() {
+  const wb = XLSX.utils.book_new();
+  const cab = ['Tipo Despesa', 'cc', 'Descricao_Conta', 'Atributo', 'Valor', 'Alocação'];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab, ['38504 - CUSTO DOS PRODUTOS VENDIDOS', '4.1.01.03.001', 'SALÁRIOS E ORDENADOS - PRODUÇÃO', 'out/26', -1000.0, 'Custo de Pessoas'], ['38509 - DESPESAS COM PESSOAL', '5.2.01.06.011', 'INSS - ADMINISTRATIVAS', 'out/26', -250.5, 'Despesas de Pessoas']]), 'Modelo');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Instruções'], ['Apague as 2 linhas de exemplo (valores fictícios) e cole os lançamentos do mês, mantendo as 6 colunas e o cabeçalho.'], ['Tipo Despesa: texto do tipo (ex.: 38504 - CUSTO DOS PRODUTOS VENDIDOS).'], ['cc: código da conta contábil (ex.: 4.1.01.03.001). Atenção: não é o centro de custo.'], ['Descricao_Conta: descrição da conta no formato VERBA - ÁREA (ex.: INSS - PRODUÇÃO). A verba e a área são lidas desta descrição.'], ['Atributo: mês de competência. Aceita jan/26, janeiro/2026, 01/2026 ou 2026-01.'], ['Valor: número. Mantenha o sinal do arquivo de origem (gasto negativo); a tela mostra o custo como valor positivo.'], ['Alocação: Custo de Pessoas ou Despesas de Pessoas.'], ['Cada linha é única por mês + cc + Descricao_Conta + Tipo Despesa.'], ['Importação mensal: use "Substituir os meses do arquivo" para corrigir um mês já importado sem duplicar; "Só acrescentar/atualizar" preserva o resto do mês.']]), 'Instruções');
+  XLSX.writeFile(wb, 'modelo_custos_folha.xlsx');
+}
+function ImportarCustosModal({
+  existentes,
+  onClose,
+  onDone
+}) {
+  const toast = useToast();
+  const [arq, setArq] = useState(null);
+  const [lido, setLido] = useState(null);
+  const [modo, setModo] = useState('substituir');
+  const [erro, setErro] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const escolher = async e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setArq(f);
+    setLido(null);
+    setErro(null);
+    try {
+      setLido(await lerPlanilhaCustos(f));
+    } catch (x) {
+      setErro(x.message || String(x));
+    }
+  };
+  const resumo = useMemo(() => {
+    if (!lido) return [];
+    const m = new Map();
+    lido.linhas.forEach(l => {
+      const k = l.mes.slice(0, 7);
+      const o = m.get(k) || {
+        ym: k,
+        n: 0,
+        total: 0
+      };
+      o.n++;
+      o.total += l.valor;
+      m.set(k, o);
+    });
+    return [...m.values()].sort((a, b) => a.ym.localeCompare(b.ym)).map(o => ({
+      ...o,
+      antes: existentes[o.ym]
+    }));
+  }, [lido]);
+  const importar = async () => {
+    setBusy(true);
+    try {
+      const r = await rpc('importar_custos_folha', {
+        p_arquivo: arq.name,
+        p_substituir: modo === 'substituir',
+        p_linhas: lido.linhas.map(l => ({
+          tipo_despesa: l.tipo_despesa,
+          conta: l.conta,
+          descricao: l.descricao,
+          mes: l.mes,
+          alocacao: l.alocacao,
+          valor: l.valor
+        }))
+      });
+      toast('Custos importados: ' + fn0(r.linhas) + ' linhas (' + fn0(r.inseridas) + ' gravadas' + (r.removidas ? ', ' + fn0(r.removidas) + ' substituídas' : '') + (r.atualizadas ? ', ' + fn0(r.atualizadas) + ' atualizadas' : '') + ').');
+      onDone();
+    } catch (x) {
+      toast(traduzErro(x), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pode = !!lido && !lido.erros.length && lido.linhas.length > 0 && !busy;
+  return React.createElement(Modal, {
+    title: "Importar custos de folha",
+    onClose: onClose,
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: onClose
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "pri",
+      disabled: !pode,
+      onClick: importar
+    }, "Importar"))
+  }, React.createElement("div", {
+    className: "space-y-4 text-sm"
+  }, React.createElement("p", {
+    className: "text-mute"
+  }, "Arquivo Excel/CSV com as colunas ", React.createElement("b", null, "Tipo Despesa, cc, Descricao_Conta, Atributo, Valor, Alocação"), ". ", React.createElement("button", {
+    className: "underline text-brand",
+    onClick: baixarModeloCustos
+  }, "Baixar modelo")), React.createElement(Field, {
+    label: "Arquivo"
+  }, React.createElement("input", {
+    type: "file",
+    accept: ".xlsx,.xls,.csv",
+    "aria-label": "Arquivo de custos",
+    onChange: escolher
+  })), erro && React.createElement("div", {
+    className: "rounded border border-danger/40 bg-danger/5 p-3 text-danger"
+  }, erro), lido && React.createElement(React.Fragment, null, React.createElement("p", null, "Aba “", lido.aba, "”: ", React.createElement("b", null, fn0(lido.linhas.length)), " linhas válidas", lido.erros.length ? React.createElement(React.Fragment, null, " · ", React.createElement("b", {
+    className: "text-danger"
+  }, fn0(lido.erros.length), " com erro")) : '', "."), lido.avisos.map((a, i) => React.createElement("p", {
+    key: i,
+    className: "text-xs text-mute"
+  }, "Atenção: ", a)), lido.erros.length > 0 && React.createElement("div", {
+    className: "rounded border border-danger/40 bg-danger/5 p-3 text-danger"
+  }, React.createElement("b", null, "Corrija o arquivo antes de importar:"), React.createElement("ul", {
+    className: "list-disc pl-5 mt-1"
+  }, lido.erros.slice(0, 8).map((e, i) => React.createElement("li", {
+    key: i
+  }, "Linha ", e.n, ": ", e.msg))), lido.erros.length > 8 && React.createElement("p", {
+    className: "mt-1"
+  }, "… e mais ", lido.erros.length - 8, ".")), !lido.erros.length && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "overflow-x-auto"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Mês"), React.createElement("th", {
+    className: "text-right"
+  }, "Linhas"), React.createElement("th", {
+    className: "text-right"
+  }, "Custo no arquivo"), React.createElement("th", {
+    className: "text-right"
+  }, "Já no sistema"), React.createElement("th", null, "Situação"))), React.createElement("tbody", null, resumo.map(o => React.createElement("tr", {
+    key: o.ym
+  }, React.createElement("td", null, rotMesCurto(o.ym)), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, fn0(o.n)), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, brlInt(-o.total)), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, o.antes === undefined ? '—' : brlInt(-o.antes)), React.createElement("td", null, o.antes === undefined ? React.createElement(Badge, {
+    tone: "ok"
+  }, "Mês novo") : Math.abs(o.antes - o.total) < 0.005 ? React.createElement(Badge, null, "Igual ao sistema") : React.createElement(Badge, {
+    tone: "aviso"
+  }, "Difere do sistema"))))))), React.createElement("div", {
+    role: "radiogroup",
+    className: "space-y-2"
+  }, React.createElement("label", {
+    className: "flex gap-2"
+  }, React.createElement("input", {
+    type: "radio",
+    name: "modo_custo",
+    checked: modo === 'substituir',
+    onChange: () => setModo('substituir')
+  }), React.createElement("span", null, React.createElement("b", null, "Substituir os meses do arquivo"), " (recomendado): apaga os lançamentos desses meses e grava os do arquivo. Reimportar o mesmo mês não duplica nada.")), React.createElement("label", {
+    className: "flex gap-2"
+  }, React.createElement("input", {
+    type: "radio",
+    name: "modo_custo",
+    checked: modo === 'acrescentar',
+    onChange: () => setModo('acrescentar')
+  }), React.createElement("span", null, React.createElement("b", null, "Só acrescentar/atualizar"), ": grava as linhas do arquivo e preserva as demais linhas já existentes nos meses.")))))));
+}
+const agrupaCusto = (rows, keyFn) => {
+  const m = new Map();
+  rows.forEach(r => {
+    const k = keyFn(r);
+    const o = m.get(k) || {
+      k,
+      porMes: {},
+      total: 0
+    };
+    const ym = r.mes.slice(0, 7);
+    const v = Number(r.custo);
+    o.porMes[ym] = (o.porMes[ym] || 0) + v;
+    o.total += v;
+    m.set(k, o);
+  });
+  return [...m.values()].sort((a, b) => b.total - a.total);
+};
+function TabelaCusto({
+  linhas,
+  meses,
+  total,
+  rotulo,
+  extra
+}) {
+  return React.createElement("div", {
+    className: "overflow-x-auto"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, rotulo), extra && extra.map(e => React.createElement("th", {
+    key: e.t
+  }, e.t)), meses.map(m => React.createElement("th", {
+    key: m,
+    className: "text-right"
+  }, rotMesCurto(m))), React.createElement("th", {
+    className: "text-right"
+  }, "Total"), React.createElement("th", {
+    className: "text-right"
+  }, "%"))), React.createElement("tbody", null, linhas.map(l => React.createElement("tr", {
+    key: l.k
+  }, React.createElement("td", {
+    className: "font-medium"
+  }, l.rot || l.k), extra && extra.map(e => React.createElement("td", {
+    key: e.t,
+    className: "text-xs text-mute"
+  }, e.f(l))), meses.map(m => React.createElement("td", {
+    key: m,
+    className: "text-right tabular-nums"
+  }, l.porMes[m] ? Number(l.porMes[m]).toLocaleString('pt-BR', {
+    maximumFractionDigits: 0
+  }) : '—')), React.createElement("td", {
+    className: "text-right tabular-nums font-medium"
+  }, Number(l.total).toLocaleString('pt-BR', {
+    maximumFractionDigits: 0
+  })), React.createElement("td", {
+    className: "text-right tabular-nums text-mute"
+  }, total ? (l.total / total * 100).toLocaleString('pt-BR', {
+    maximumFractionDigits: 1
+  }) + '%' : '—')))), React.createElement("tfoot", null, React.createElement("tr", {
+    className: "font-semibold"
+  }, React.createElement("td", null, "Total"), extra && extra.map(e => React.createElement("td", {
+    key: e.t
+  })), meses.map(m => React.createElement("td", {
+    key: m,
+    className: "text-right tabular-nums"
+  }, Number(linhas.reduce((t, l) => t + (l.porMes[m] || 0), 0)).toLocaleString('pt-BR', {
+    maximumFractionDigits: 0
+  }))), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, Number(total).toLocaleString('pt-BR', {
+    maximumFractionDigits: 0
+  })), React.createElement("td", null)))));
+}
+function CstKpi({
+  rotulo,
+  valor,
+  sub,
+  destaque
+}) {
+  return React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, rotulo), React.createElement("div", {
+    className: 'font-display text-2xl mt-1 tabular-nums ' + (destaque || '')
+  }, valor), sub && React.createElement("div", {
+    className: "text-xs text-mute mt-1"
+  }, sub));
+}
+function PainelCustos({
+  perfil
+}) {
+  const q = useAsync(() => fetchAll(() => sb.from('v_custo_folha').select('*').order('id')), []);
+  const ult = useAsync(() => run(sb.from('custo_importacao').select('*').order('id', {
+    ascending: false
+  }).limit(1)), []);
+  const colab = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('vinculo_id, data_admissao, data_demissao, tipo_vinculo').order('vinculo_id')), []);
+  const [imp, setImp] = useState(false);
+  const [de, setDe] = useState('');
+  const [ate, setAte] = useState('');
+  const [aloc, setAloc] = useState('');
+  const [busca, setBusca] = useState('');
+  const dados = q.data || [];
+  const meses = useMemo(() => [...new Set(dados.map(r => r.mes.slice(0, 7)))].sort(), [q.data]);
+  const fim = ate || meses[meses.length - 1] || '';
+  const ini = de || (meses.length ? ymSoma(fim, -11) < meses[0] ? meses[0] : ymSoma(fim, -11) : '');
+  const existentes = useMemo(() => {
+    const o = {};
+    dados.forEach(r => {
+      const k = r.mes.slice(0, 7);
+      o[k] = (o[k] || 0) + Number(r.valor);
+    });
+    return o;
+  }, [q.data]);
+  const sel = useMemo(() => dados.filter(r => {
+    const m = r.mes.slice(0, 7);
+    return m >= ini && m <= fim && (!aloc || r.alocacao === aloc);
+  }), [q.data, ini, fim, aloc]);
+  const mesesSel = meses.filter(m => m >= ini && m <= fim);
+  const total = sel.reduce((t, r) => t + Number(r.custo), 0);
+  const totMes = m => sel.filter(r => r.mes.slice(0, 7) === m).reduce((t, r) => t + Number(r.custo), 0);
+  const ultimo = mesesSel[mesesSel.length - 1],
+    anterior = mesesSel[mesesSel.length - 2];
+  const vUlt = ultimo ? totMes(ultimo) : null,
+    vAnt = anterior ? totMes(anterior) : null;
+  const headcount = ym => {
+    const fimMes = ymSoma(ym, 1) + '-01';
+    return (colab.data || []).filter(c => c.tipo_vinculo !== 'pj' && c.data_admissao < fimMes && (!c.data_demissao || c.data_demissao >= fimMes)).length;
+  };
+  const hc = ultimo && colab.data ? headcount(ultimo) : null;
+  const porAloc = agrupaCusto(sel, r => r.alocacao);
+  const porGrupo = useMemo(() => agrupaCusto(sel, r => r.grupo), [sel]);
+  const porArea = useMemo(() => agrupaCusto(sel, r => r.area), [sel]);
+  const porConta = useMemo(() => agrupaCusto(sel, r => r.conta + ' · ' + r.descricao), [sel]);
+  const infoConta = useMemo(() => {
+    const m = {};
+    sel.forEach(r => {
+      m[r.conta + ' · ' + r.descricao] = r;
+    });
+    return m;
+  }, [sel]);
+  const contasFiltradas = porConta.filter(l => !busca || norm(l.k).includes(norm(busca)));
+  const cfgMensal = {
+    type: 'bar',
+    data: {
+      labels: mesesSel.map(rotMesCurto),
+      datasets: ALOC_PADRAO.map((a, i) => ({
+        label: a,
+        backgroundColor: i ? CORES.areia : CORES.brand,
+        data: mesesSel.map(m => sel.filter(r => r.mes.slice(0, 7) === m && r.alocacao === a).reduce((t, r) => t + Number(r.custo), 0))
+      }))
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true
+        },
+        y: {
+          stacked: true,
+          ticks: {
+            callback: v => abrevMi(v)
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'bottom'
+        },
+        tooltip: {
+          callbacks: {
+            label: c => c.dataset.label + ': ' + brlInt(c.parsed.y)
+          }
+        }
+      }
+    }
+  };
+  const cfgGrupo = {
+    type: 'bar',
+    data: {
+      labels: porGrupo.map(g => g.k),
+      datasets: [{
+        label: 'Custo no período',
+        backgroundColor: CORES.brand,
+        data: porGrupo.map(g => g.total)
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          ticks: {
+            callback: v => abrevMi(v)
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: c => brlInt(c.parsed.x) + ' (' + (total ? (c.parsed.x / total * 100).toLocaleString('pt-BR', {
+              maximumFractionDigits: 1
+            }) : 0) + '%)'
+          }
+        }
+      }
+    }
+  };
+  const exporta = (linhas, nome) => baixar(linhas.map(l => ({
+    Item: l.k,
+    ...Object.fromEntries(mesesSel.map(m => [rotMesCurto(m), Math.round((l.porMes[m] || 0) * 100) / 100])),
+    Total: Math.round(l.total * 100) / 100
+  })), nome + '_' + ini + '_a_' + fim, 'xlsx');
+  if (q.loading && !q.data) return React.createElement(Spinner, null);
+  return React.createElement("div", null, React.createElement(PageHead, {
+    title: "Custos de folha",
+    sub: meses.length ? 'Dados de ' + rotMesCurto(meses[0]) + ' a ' + rotMesCurto(meses[meses.length - 1]) + ' · ' + meses.length + ' meses importados' + (ult.data && ult.data[0] ? ' · última importação: ' + ult.data[0].arquivo + ' em ' + fd(String(ult.data[0].criado_em).slice(0, 10)) : '') : 'Nenhum custo importado ainda'
+  }, React.createElement(Btn, {
+    onClick: baixarModeloCustos
+  }, "Baixar modelo"), React.createElement(Btn, {
+    kind: "pri",
+    onClick: () => setImp(true)
+  }, "Importar custos")), q.error && React.createElement(Erro, {
+    e: q.error,
+    onRetry: q.reload
+  }), !meses.length ? React.createElement("div", {
+    className: "panel"
+  }, React.createElement(Vazio, null, "Importe o arquivo de custos (botão ", React.createElement("b", null, "Importar custos"), ") para ver a evolução da folha.")) : React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "flex flex-wrap items-center gap-x-4 gap-y-2 mb-4"
+  }, React.createElement("div", {
+    className: "flex items-center gap-2 text-sm"
+  }, React.createElement("span", {
+    className: "text-mute"
+  }, "De"), React.createElement(MesAnoPicker, {
+    className: "w-48",
+    valor: ini,
+    rotulo: "Custos de",
+    limpavel: false,
+    max: fim,
+    onChange: m => m && setDe(m)
+  })), React.createElement("div", {
+    className: "flex items-center gap-2 text-sm"
+  }, React.createElement("span", {
+    className: "text-mute"
+  }, "Até"), React.createElement(MesAnoPicker, {
+    className: "w-48",
+    valor: fim,
+    rotulo: "Custos até",
+    limpavel: false,
+    min: ini,
+    onChange: m => m && setAte(m)
+  })), React.createElement(Select, {
+    "aria-label": "Alocação",
+    className: "w-56",
+    value: aloc,
+    onChange: e => setAloc(e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, "Todas as alocações"), ALOC_PADRAO.map(a => React.createElement("option", {
+    key: a
+  }, a)))), React.createElement("div", {
+    className: "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4"
+  }, React.createElement(CstKpi, {
+    rotulo: "Custo total no período",
+    valor: brlInt(total),
+    sub: mesesSel.length + ' mês(es)'
+  }), React.createElement(CstKpi, {
+    rotulo: "Média mensal",
+    valor: brlInt(mesesSel.length ? total / mesesSel.length : null)
+  }), React.createElement(CstKpi, {
+    rotulo: ultimo ? 'Custo em ' + rotMesCurto(ultimo) : 'Último mês',
+    valor: brlInt(vUlt),
+    sub: anterior ? fVar(vAnt ? (vUlt - vAnt) / Math.abs(vAnt) * 100 : null) + ' vs ' + rotMesCurto(anterior) : null
+  }), React.createElement(CstKpi, {
+    rotulo: "Custo por colaborador",
+    valor: brlInt(hc ? vUlt / hc : null),
+    sub: hc ? 'Custo de ' + rotMesCurto(ultimo) + ' ÷ ' + fn0(hc) + ' colaboradores ativos no fim do mês (sem PJ)' : '—'
+  })), !aloc && porAloc.length > 1 && React.createElement("p", {
+    className: "text-sm text-mute mb-3"
+  }, porAloc.map(a => a.k + ': ' + (total ? (a.total / total * 100).toLocaleString('pt-BR', {
+    maximumFractionDigits: 1
+  }) : 0) + '%').join(' · ')), React.createElement("div", {
+    className: "grid lg:grid-cols-2 gap-4 mb-4"
+  }, React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-3"
+  }, "Custo por mês"), React.createElement(ChartCanvas, {
+    config: cfgMensal,
+    height: 280
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-3"
+  }, "Onde está o custo (por grupo de verba)"), React.createElement(ChartCanvas, {
+    config: cfgGrupo,
+    height: 280
+  }))), React.createElement("div", {
+    className: "panel p-4 mb-4"
+  }, React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, React.createElement("h2", {
+    className: "font-display text-base"
+  }, "Por grupo de verba × mês (R$)"), React.createElement(Btn, {
+    onClick: () => exporta(porGrupo, 'custos_por_grupo')
+  }, "Exportar Excel")), React.createElement(TabelaCusto, {
+    linhas: porGrupo,
+    meses: mesesSel,
+    total: total,
+    rotulo: "Grupo"
+  })), React.createElement("div", {
+    className: "panel p-4 mb-4"
+  }, React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, React.createElement("h2", {
+    className: "font-display text-base"
+  }, "Por área × mês (R$)"), React.createElement(Btn, {
+    onClick: () => exporta(porArea, 'custos_por_area')
+  }, "Exportar Excel")), React.createElement(TabelaCusto, {
+    linhas: porArea,
+    meses: mesesSel,
+    total: total,
+    rotulo: "Área (da descrição da conta)"
+  })), React.createElement("details", {
+    className: "panel p-4 mb-4"
+  }, React.createElement("summary", {
+    className: "cursor-pointer font-display text-base"
+  }, "Detalhe por conta (", fn0(porConta.length), ")"), React.createElement("div", {
+    className: "flex items-center gap-3 my-3"
+  }, React.createElement(Input, {
+    className: "w-72",
+    placeholder: "Buscar conta ou descrição",
+    "aria-label": "Buscar conta",
+    value: busca,
+    onChange: e => setBusca(e.target.value)
+  }), React.createElement(Btn, {
+    onClick: () => exporta(contasFiltradas, 'custos_por_conta')
+  }, "Exportar Excel")), React.createElement(TabelaCusto, {
+    linhas: contasFiltradas.map(l => ({
+      ...l,
+      rot: l.k
+    })),
+    meses: mesesSel,
+    total: total,
+    rotulo: "Conta · descrição",
+    extra: [{
+      t: 'Grupo',
+      f: l => (infoConta[l.k] || {}).grupo
+    }]
+  })), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "Custo = valor do arquivo com o sinal invertido (o arquivo traz gastos como negativos). Grupo e área são lidos da descrição da conta (“VERBA - ÁREA”). Estes dados são visíveis apenas ao Administrador.")), imp && React.createElement(ImportarCustosModal, {
+    existentes: existentes,
+    onClose: () => setImp(false),
+    onDone: () => {
+      setImp(false);
+      q.reload();
+      ult.reload();
+    }
+  }));
+}
+function Painel({
+  perfil
+}) {
+  const [aba, setAba] = useState('pessoas');
+  if (perfil.papel !== 'admin') return React.createElement(PainelPessoas, {
+    perfil: perfil
+  });
+  return React.createElement("div", null, React.createElement("div", {
+    className: "flex gap-1 mb-4 border-b border-line",
+    role: "tablist",
+    "aria-label": "Painel"
+  }, [['pessoas', 'Pessoas'], ['custos', 'Custos de folha']].map(([k, n]) => React.createElement("button", {
+    key: k,
+    role: "tab",
+    "aria-selected": aba === k,
+    onClick: () => setAba(k),
+    className: 'px-4 py-2 text-sm border-b-2 -mb-px ' + (aba === k ? 'border-acento text-ink font-semibold' : 'border-transparent text-mute hover:text-ink')
+  }, n))), aba === 'pessoas' ? React.createElement(PainelPessoas, {
+    perfil: perfil
+  }) : React.createElement(PainelCustos, {
+    perfil: perfil
+  }));
+}
+const DASH_BUCKET = 'dashboards',
+  DASH_ARQ = 'dashboard_dp.html';
+function DashboardDP({
+  perfil
+}) {
+  const toast = useToast();
+  const podeEnviar = ehAdm(perfil.papel);
+  const [est, setEst] = useState({
+    fase: 'carregando',
+    url: null,
+    meta: null,
+    erro: null
+  });
+  const [envio, setEnvio] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const urlRef = useRef(null);
+  const frameRef = useRef(null);
+  const carregar = async () => {
+    setEst({
+      fase: 'carregando',
+      url: null,
+      meta: null,
+      erro: null
+    });
+    try {
+      const {
+        data: lista,
+        error: e0
+      } = await sb.storage.from(DASH_BUCKET).list('', {
+        search: DASH_ARQ,
+        limit: 10
+      });
+      if (e0) throw e0;
+      const item = (lista || []).find(x => x.name === DASH_ARQ);
+      if (!item) {
+        setEst({
+          fase: 'vazio',
+          url: null,
+          meta: null,
+          erro: null
+        });
+        return;
+      }
+      const {
+        data: blob,
+        error
+      } = await sb.storage.from(DASH_BUCKET).download(DASH_ARQ);
+      if (error) throw error;
+      const html = await blob.text();
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = URL.createObjectURL(new Blob([html], {
+        type: 'text/html'
+      }));
+      setEst({
+        fase: 'ok',
+        url: urlRef.current,
+        meta: {
+          quando: item.updated_at || item.created_at,
+          tamanho: item.metadata && item.metadata.size || blob.size
+        },
+        erro: null
+      });
+    } catch (e) {
+      setEst({
+        fase: 'erro',
+        url: null,
+        meta: null,
+        erro: e
+      });
+    }
+  };
+  useEffect(() => {
+    carregar();
+    return () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    };
+  }, []);
+  const escolher = e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!/\.html?$/i.test(f.name)) return toast('Envie o arquivo HTML gerado pelo Dashboard DP (Salvar HTML com dados).', 'erro');
+    if (f.size > 20 * 1024 * 1024) return toast('O arquivo passa de 20 MB.', 'erro');
+    setEnvio(f);
+  };
+  const enviar = async () => {
+    setBusy(true);
+    try {
+      const {
+        error
+      } = await sb.storage.from(DASH_BUCKET).upload(DASH_ARQ, envio, {
+        upsert: true,
+        contentType: 'text/html;charset=UTF-8',
+        cacheControl: '0'
+      });
+      if (error) throw error;
+      toast('Dashboard DP atualizado.');
+      setEnvio(null);
+      carregar();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const baixarArq = () => {
+    if (!est.url) return;
+    const a = document.createElement('a');
+    a.href = est.url;
+    a.download = DASH_ARQ;
+    a.click();
+  };
+  const telaCheia = () => {
+    const f = frameRef.current;
+    if (f && f.requestFullscreen) f.requestFullscreen();
+  };
+  const tam = n => n ? (n / 1048576).toLocaleString('pt-BR', {
+    maximumFractionDigits: 1
+  }) + ' MB' : '';
+  return React.createElement("div", null, React.createElement(PageHead, {
+    title: "Dashboard DP",
+    sub: est.fase === 'ok' && est.meta ? 'Atualizado em ' + fd(String(est.meta.quando).slice(0, 10)) + (est.meta.tamanho ? ' · ' + tam(est.meta.tamanho) : '') : 'Pontos, ausências e horas extras (cartão de ponto)'
+  }, est.fase === 'ok' && React.createElement(Btn, {
+    onClick: telaCheia
+  }, "Tela cheia"), est.fase === 'ok' && React.createElement(Btn, {
+    onClick: baixarArq
+  }, "Baixar arquivo"), podeEnviar && React.createElement("label", {
+    className: "btn btn-pri cursor-pointer"
+  }, est.fase === 'vazio' ? 'Enviar dashboard' : 'Enviar nova versão', React.createElement("input", {
+    type: "file",
+    accept: ".html,.htm,text/html",
+    className: "hidden",
+    "aria-label": "Arquivo do Dashboard DP",
+    onChange: escolher
+  }))), est.fase === 'carregando' && React.createElement("div", {
+    className: "panel"
+  }, React.createElement(Spinner, {
+    text: "Carregando o dashboard…"
+  })), est.fase === 'erro' && React.createElement("div", {
+    className: "panel"
+  }, React.createElement(Erro, {
+    e: est.erro,
+    onRetry: carregar
+  })), est.fase === 'vazio' && React.createElement("div", {
+    className: "panel"
+  }, React.createElement(Vazio, null, podeEnviar ? 'Nenhum dashboard enviado ainda. Use “Enviar dashboard” e escolha o HTML gerado pelo Dashboard DP.' : 'O dashboard ainda não foi enviado. Fale com o Adm RH ou o Administrador.')), est.fase === 'ok' && React.createElement(React.Fragment, null, React.createElement("iframe", {
+    ref: frameRef,
+    title: "Dashboard DP",
+    src: est.url,
+    sandbox: "allow-scripts allow-downloads allow-modals allow-popups allow-forms",
+    className: "w-full rounded border border-line bg-white",
+    style: {
+      height: 'calc(100vh - 200px)',
+      minHeight: 560
+    }
+  }), React.createElement("p", {
+    className: "mt-2 text-xs text-mute"
+  }, "Contém dados de ponto e atestados, restritos a Administrador, Adm RH e DP. ", podeEnviar ? 'Para atualizar: abra o dashboard acima, clique em Carregar pasta (cartões de ponto do Secullum), depois em Salvar HTML com dados e envie o arquivo gerado em “Enviar nova versão”.' : '')), envio && React.createElement(Modal, {
+    title: "Enviar nova versão do Dashboard DP",
+    onClose: () => setEnvio(null),
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: () => setEnvio(null)
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "pri",
+      disabled: busy,
+      onClick: enviar
+    }, est.fase === 'ok' ? 'Substituir dashboard' : 'Enviar'))
+  }, React.createElement("div", {
+    className: "text-sm space-y-2"
+  }, React.createElement("p", null, "Arquivo: ", React.createElement("b", null, envio.name), " (", tam(envio.size), ")."), est.fase === 'ok' && React.createElement("p", {
+    className: "text-mute"
+  }, "Isto substitui o dashboard atual para todos que têm acesso."), React.createElement("p", {
+    className: "text-mute"
+  }, "O arquivo contém dados de colaboradores (nome, ponto, atestados). Confirme que é a versão correta antes de enviar."))));
+}
 const MENU = {
-  admin: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos'], ['importacao', 'Importar colaboradores'], ['cadastros', 'Cadastros'], ['auditoria', 'Auditoria']],
-  dp: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência']],
+  get admin_rh() { return MENU.admin; },
+  admin: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['dashdp', 'Dashboard DP'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos'], ['importacao', 'Importar colaboradores'], ['cadastros', 'Cadastros'], ['auditoria', 'Auditoria']],
+  dp: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['dashdp', 'Dashboard DP']],
   rs: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos']],
   gestor: [['colaboradores', 'Minha equipe'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['vagas', 'Vagas']]
 };
@@ -7311,6 +8184,9 @@ function Shell({
       perfil: perfil
     }),
     experiencia: React.createElement(Experiencia, {
+      perfil: perfil
+    }),
+    dashdp: React.createElement(DashboardDP, {
       perfil: perfil
     }),
     vagas: React.createElement(Vagas, {
