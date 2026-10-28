@@ -799,66 +799,7 @@ function PainelPessoas({
   const last = d && d.tv.length ? d.tv[d.tv.length - 1] : null;
   const medias = d ? d.tv.filter(x => x.turnover !== null).map(x => Number(x.turnover)) : [];
   const media = medias.length ? medias.reduce((a, b) => a + b, 0) / medias.length : null;
-  const chTurn = d && {
-    type: 'bar',
-    data: {
-      labels: d.tv.map(x => mesCurto(x.mes)),
-      datasets: [{
-        type: 'bar',
-        label: 'Admissões',
-        data: d.tv.map(x => x.admissoes),
-        backgroundColor: CORES.brand,
-        yAxisID: 'y'
-      }, {
-        type: 'bar',
-        label: 'Desligamentos',
-        data: d.tv.map(x => x.desligamentos),
-        backgroundColor: CORES.salmao,
-        yAxisID: 'y'
-      }, {
-        type: 'line',
-        label: 'Turnover (%)',
-        data: d.tv.map(x => x.turnover === null ? null : Number(x.turnover) * 100),
-        borderColor: CORES.acento,
-        backgroundColor: CORES.acento,
-        yAxisID: 'y1',
-        tension: 0.25,
-        pointRadius: 3
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        mode: 'index',
-        intersect: false
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Pessoas'
-          }
-        },
-        y1: {
-          position: 'right',
-          beginAtZero: true,
-          grid: {
-            drawOnChartArea: false
-          },
-          ticks: {
-            callback: v => v + '%'
-          }
-        }
-      },
-      plugins: {
-        legend: {
-          position: 'bottom'
-        }
-      }
-    }
-  };
+  const chTurn = d && cfgTurnover(d.tv);
   const chDem = d && {
     type: 'bar',
     data: {
@@ -7983,180 +7924,1110 @@ function Painel({
     perfil: perfil
   }));
 }
-const DASH_BUCKET = 'dashboards',
-  DASH_ARQ = 'dashboard_dp.html';
-function DashboardDP({
-  perfil
+/* Processador do cartão de ponto (Secullum) — copiado sem alterações do Dashboard DP original */
+// Processador do cartão de ponto (Secullum) -> dados do Dashboard DP.
+// Usado tanto no navegador (upload de pasta no próprio HTML) quanto no Node (atualizar.js).
+(function (raiz) {
+  // Dia da semana (0 = domingo) pelo nome completo ou abreviado, com ou sem acento
+  const DIA_SEMANA = { DOMINGO: 0, DOM: 0, SEGUNDA: 1, SEG: 1, 'TERÇA': 2, TERCA: 2, TER: 2, QUARTA: 3, QUA: 3, QUINTA: 4, QUI: 4, SEXTA: 5, SEX: 5, 'SÁBADO': 6, SABADO: 6, 'SÁB': 6, SAB: 6 };
+  const ROTULOS_BATIDA = ['ENTRADA 1', 'SAÍDA 1', 'ENTRADA 2', 'SAÍDA 2', 'ENTRADA 3', 'SAÍDA 3', 'ENTRADA 4', 'SAÍDA 4'];
+  // Rótulos do cabeçalho do colaborador: o valor fica na mesma coluna, 1 a 3 linhas abaixo
+  const ROTULOS_CAMPO = { 'NOME:': 'nome', 'Nº FOLHA:': 'folha', 'CPF:': 'cpf', 'ADMISSÃO:': 'admissao', 'FUNÇÃO:': 'funcao', 'DEPARTAMENTO:': 'departamento', 'C.T.P.S.:': 'ctps' };
+  const TOLERANCIA_MIN = 10; // CLT art. 58 §1º
+  const JORNADA_PADRAO = [0, 528, 528, 528, 528, 528, 0];
+  const DEPARTAMENTOS_SEM_PONTO = /VENDAS/i; // equipe de vendas não registra ponto
+  // Colaboradores que ficam totalmente fora do sistema
+  const EXCLUSOES = [
+    ['Área de Vendas', c => /VENDAS/i.test(c.departamento || '') || /VENDAS/i.test(c.funcao || '')],
+    ['Função PJ', c => /(^|[\s\-–(/])PJ\s*\)?\s*$/i.test(c.funcao || '')],
+    ['Sócio', c => /\bS[ÓO]CI[OA]S?\b/i.test(c.funcao || '')],
+    ['Senai', c => /SENAI/i.test(c.funcao || '')],
+  ];
+  const motivoExclusao = c => { const r = EXCLUSOES.find(([, teste]) => teste(c)); return r ? r[0] : null; };
+  const TIPO_LICENCA = { 'LIC MAT': 'Licença maternidade', 'LIC PAT': 'Licença paternidade', 'LIC NOJ': 'Licença nojo', 'LIC GAL': 'Licença gala' };
+
+  // Código de um caractere por dia (usado também no calendário do dashboard)
+  //  T trabalhado  F falta  A atestado/declaração (até o 15º dia)  P atestado após o 15º dia  S suspensão
+  //  X sem marcação (dia de escala sem registro)  I INSS  L licença  V férias  B banco de horas  J abono
+  //  O folga  H feriado  G integração  - sem escala  . fora do contrato
+  function classificaOcorrencia(txt) {
+    const t = txt.replace(/[¨*^]/g, '').trim().toUpperCase();
+    if (t === 'FALTA') return 'F';
+    if (t.startsWith('FALTA J')) return 'J';
+    if (t.startsWith('AT. MED') || t.startsWith('DECLAR')) return 'A';
+    if (t.startsWith('SUSPENS')) return 'S';
+    if (t === 'INSS') return 'I';
+    if (t.startsWith('LIC')) return 'L';
+    if (t.startsWith('FÉRIAS') || t.startsWith('FERIAS')) return 'V';
+    if (t.startsWith('BANCO')) return 'B';
+    if (t.startsWith('ABONO')) return 'J';
+    if (t.startsWith('FOLGA')) return 'O';
+    if (t.startsWith('FERIADO')) return 'H';
+    if (t.startsWith('INTEGRA')) return 'G';
+    return null;
+  }
+
+  const hm = s => { const m = /^(\d{1,2}):(\d\d)/.exec(s || ''); return m ? +m[1] * 60 + +m[2] : null; };
+  const dur = (a, b) => (a == null || b == null) ? 0 : (b >= a ? b - a : b + 1440 - a);
+  const iso = dmy => { const [d, m, y] = dmy.split('/'); return `${y}-${m}-${d}`; };
+  const normaliza = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+
+  // Lê uma planilha (ArrayBuffer/Buffer) e devolve os colaboradores com as marcações de cada dia
+  function lerPlanilha(XLSX, conteudo) {
+    const wb = XLSX.read(conteudo, { type: conteudo instanceof ArrayBuffer ? 'array' : 'buffer', dense: true, cellStyles: false, cellHTML: false });
+    const linhas = [];
+    for (const nome of wb.SheetNames) {
+      const ws = wb.Sheets[nome];
+      const dados = ws['!data'] || (Array.isArray(ws) ? ws : null); // modo "dense" (SheetJS 0.19+ / 0.18)
+      if (dados) { for (let i = 0; i < dados.length; i++) linhas.push(dados[i] || []); continue; }
+      XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: null }).forEach(r => linhas.push(r.map(v => v == null ? null : { w: String(v) })));
+    }
+    const cel = (i, c) => {
+      const cell = linhas[i] && linhas[i][c];
+      if (!cell) return '';
+      const v = cell.w != null ? cell.w : (cell.v != null ? XLSX.utils.format_cell(cell) : '');
+      return String(v).trim();
+    };
+    const largura = i => (linhas[i] ? linhas[i].length : 0);
+    const ehRotulo = s => /:$/.test(s) || s in ROTULOS_CAMPO;
+    // O Secullum muda a posição das colunas conforme a exportação: tudo é localizado pelos rótulos
+    const colabs = [];
+    let cur = null, cabecalho = false, colBatidas = null;
+    for (let i = 0; i < linhas.length; i++) {
+      const c0 = cel(i, 0);
+      if (c0 === 'EMPRESA:') {
+        cur = { empresa: '', carga: [0, 0, 0, 0, 0, 0, 0], dias: {} };
+        for (let k = i + 1; k <= i + 3 && !cur.empresa; k++) { const v = cel(k, 0); if (v && !ehRotulo(v)) cur.empresa = v; }
+        colabs.push(cur); cabecalho = true;
+      }
+      if (!cur) continue;
+      if (c0 === 'DATA') { // linha de títulos das batidas (repete a cada página)
+        const cols = ROTULOS_BATIDA.map(r => { for (let c = 0; c < largura(i); c++) if (cel(i, c).toUpperCase() === r) return c; return -1; });
+        if (cols[0] >= 0) colBatidas = cols;
+        cabecalho = false;
+        continue;
+      }
+      if (cabecalho) {
+        for (let c = 0; c < largura(i); c++) {
+          const t = cel(i, c); if (!t) continue;
+          const campo = ROTULOS_CAMPO[t.toUpperCase()];
+          if (campo && !cur[campo]) {
+            for (let k = i + 1; k <= i + 3; k++) { const v = cel(k, c); if (v) { if (!ehRotulo(v)) cur[campo] = v; break; } }
+            continue;
+          }
+          const dia = DIA_SEMANA[t.toUpperCase()];
+          if (dia !== undefined) { // jornada do dia: carga diária ("08:00") ou pares entrada/saída à direita
+            const horas = [];
+            for (let k = c + 1; k < largura(i); k++) { const h = hm(cel(i, k)); if (h != null) horas.push(h); }
+            let min = 0;
+            if (horas.length === 1) min = horas[0];
+            else for (let k = 0; k + 1 < horas.length; k += 2) min += dur(horas[k], horas[k + 1]);
+            cur.carga[dia] = min;
+          }
+        }
+        continue;
+      }
+      const m = /^(\d\d\/\d\d\/\d{4})\s*-/.exec(c0);
+      if (m && colBatidas) cur.dias[iso(m[1])] = { v: colBatidas.map(c => (c >= 0 ? cel(i, c) : '')), fer: /-\s*Fer/i.test(c0) };
+    }
+    if (colabs.length && !colBatidas) throw new Error('Layout do cartão de ponto não reconhecido: não encontrei a linha de títulos "DATA / ENTRADA 1 / SAÍDA 1".');
+    return colabs.filter(c => c.nome).map(c => {
+      c.admissao = /^\d\d\/\d\d\/\d{4}$/.test(c.admissao || '') ? iso(c.admissao) : null;
+      c.funcao = (c.funcao || '').replace(/\s*-\s*\d{4,}\s*$/, '').trim();
+      c.departamento = c.departamento || '';
+      delete c.ctps;
+      return c;
+    });
+  }
+
+  function processaDia(data, { v: vals, fer }, carga) {
+    const dow = new Date(data + 'T12:00:00').getDay();
+    const previstoMin = carga[dow];
+    const horas = vals.map(hm);
+    let trabalhado = 0, temBatida = false;
+    for (let k = 0; k < 8; k += 2) {
+      if (horas[k] != null || horas[k + 1] != null) temBatida = true;
+      trabalhado += dur(horas[k], horas[k + 1]);
+    }
+    const txt = vals.find(v => v && hm(v) == null) || '';
+    let cod = temBatida ? 'T' : (txt ? classificaOcorrencia(txt) : null);
+    if (!cod) cod = previstoMin > 0 ? 'X' : '-';
+    if (cod === 'G' && trabalhado > 0) cod = 'T';
+    const ehFeriadoFolga = cod === 'H' || cod === 'O' || fer;
+    let extra = 0;
+    if (cod === 'T') {
+      const dif = trabalhado - (ehFeriadoFolga ? 0 : previstoMin);
+      if (dif > TOLERANCIA_MIN) extra = dif;
+    }
+    const licenca = cod === 'L' ? (TIPO_LICENCA[txt.replace(/[¨*^]/g, '').trim().toUpperCase()] || 'Licença') : null;
+    return { cod, trabalhado, extra, previstoMin, dow, licenca };
+  }
+
+  // Desligamentos.csv (opcional): NOME;DD/MM/AAAA — data vazia = NÃO foi desligado (anula a inferência)
+  function lerDesligamentos(texto) {
+    const mapa = new Map();
+    for (const linha of (texto || '').split(/\r?\n/)) {
+      const [nome, data] = linha.split(/[;,\t]/).map(s => (s || '').trim());
+      if (!nome || /^nome$/i.test(nome)) continue;
+      mapa.set(normaliza(nome), /^\d\d\/\d\d\/\d{4}$/.test(data) ? iso(data) : null);
+    }
+    return mapa;
+  }
+
+  // lidos: [{ arquivo, colabs }] do mais antigo para o mais recente (o mais recente prevalece em datas repetidas)
+  function montar(lidos, textoDesligamentos) {
+    const pessoas = new Map();
+    for (const { colabs } of lidos) {
+      for (const c of colabs) {
+        const chave = c.cpf || c.nome;
+        const p = pessoas.get(chave) || { dias: {}, cargaPorData: {} };
+        Object.assign(p, { nome: c.nome, folha: c.folha, cpf: c.cpf, admissao: c.admissao, funcao: c.funcao, departamento: c.departamento, empresa: c.empresa });
+        for (const d in c.dias) { p.dias[d] = c.dias[d]; p.cargaPorData[d] = c.carga; }
+        pessoas.set(chave, p);
+      }
+    }
+    if (!pessoas.size) throw new Error('Nenhum cartão de ponto encontrado nos arquivos.');
+    const excluidos = {};
+    pessoas.forEach((p, chave) => { const m = motivoExclusao(p); if (m) { excluidos[m] = (excluidos[m] || 0) + 1; pessoas.delete(chave); } });
+
+    const todasDatas = new Set();
+    pessoas.forEach(p => Object.keys(p.dias).forEach(d => todasDatas.add(d)));
+    const datas = [...todasDatas].sort();
+    const ultimaData = datas[datas.length - 1];
+    const meses = [...new Set(datas.map(d => d.slice(0, 7)))];
+    const desligamentos = lerDesligamentos(textoDesligamentos);
+    const estat = { atestadoAlem15: 0, desligamentosInformados: desligamentos.size, excluidos };
+
+    const colaboradores = [];
+    pessoas.forEach(p => {
+      const ds = Object.keys(p.dias).sort();
+      // Quem bate ponto mas não tem horário cadastrado: assume jornada padrão de 44h (seg-sex 8h48)
+      const temBatida = ds.some(d => p.dias[d].v.some(v => hm(v) != null));
+      let semHorario = false;
+      for (const d of ds) {
+        if (temBatida && p.cargaPorData[d].every(v => !v)) { p.cargaPorData[d] = JORNADA_PADRAO; semHorario = true; }
+      }
+      const semPonto = DEPARTAMENTOS_SEM_PONTO.test(p.departamento || '');
+      const dias = ds.map(d => Object.assign({ d }, processaDia(d, p.dias[d], p.cargaPorData[d])));
+      // Departamentos que não batem ponto: dia sem registro não é ausência
+      if (semPonto) dias.forEach(x => { if (x.cod === 'X') x.cod = '-'; });
+      // Atestados: a empresa responde só pelos 15 primeiros dias consecutivos do afastamento;
+      // do 16º dia em diante o afastamento é previdenciário (P) e sai do absenteísmo
+      let inicioAfast = null;
+      for (const x of dias) {
+        if (x.cod === 'A') {
+          if (!inicioAfast) inicioAfast = x.d;
+          if ((new Date(x.d) - new Date(inicioAfast)) / 864e5 >= 15) { x.cod = 'P'; estat.atestadoAlem15++; }
+        } else if (!'-OH'.includes(x.cod)) inicioAfast = null; // folga/feriado no meio não interrompe o afastamento
+      }
+      // Desligamento: informado em Desligamentos.csv ou inferido (quem bate ponto e não tem nenhuma
+      // batida/ocorrência individual nos últimos 7 dias do período). Departamentos sem ponto nunca são inferidos.
+      const ativos = dias.filter(x => !'HO-X.'.includes(x.cod));
+      const ultimaAtiv = ativos.length ? ativos[ativos.length - 1].d : null;
+      const limite = new Date(ultimaData + 'T12:00:00'); limite.setDate(limite.getDate() - 7);
+      const informado = desligamentos.get(normaliza(p.nome));
+      let demissao = null, demissaoInferida = false;
+      if (informado !== undefined) demissao = informado;
+      else if (temBatida && !semPonto && ultimaAtiv && new Date(ultimaAtiv + 'T12:00:00') < limite) { demissao = ultimaAtiv; demissaoInferida = true; }
+      const inicio = p.admissao && ativos.length && p.admissao > ativos[0].d ? ativos[0].d : p.admissao;
+
+      const porMes = {};
+      for (const x of dias) {
+        if ((inicio && x.d < inicio) || (demissao && x.d > demissao)) x.cod = '.';
+        const mes = x.d.slice(0, 7);
+        const a = porMes[mes] || (porMes[mes] = { cal: '', prev: 0, trab: 0, horasTrab: 0, extra: 0, F: 0, A: 0, S: 0, X: 0, I: 0, P: 0, L: 0, V: 0, B: 0, J: 0, lic: {} });
+        a.cal += x.cod;
+        if (x.cod === '.') continue;
+        if ('FASXJB'.includes(x.cod) || (x.cod === 'T' && x.previstoMin > 0)) a.prev++;
+        if (x.cod === 'T') { a.trab++; a.horasTrab += x.trabalhado; a.extra += x.extra; }
+        if (a[x.cod] !== undefined && x.cod !== 'T') a[x.cod]++;
+        if (x.licenca) a.lic[x.licenca] = (a.lic[x.licenca] || 0) + 1;
+      }
+      colaboradores.push({
+        nome: p.nome, folha: p.folha, admissao: p.admissao, demissao, demissaoInferida,
+        funcao: p.funcao || '(sem função)', departamento: p.departamento || '(sem departamento)',
+        cargaSemanal: p.cargaPorData[ds[ds.length - 1]].reduce((s, v) => s + v, 0),
+        semHorario, batePonto: temBatida, semPonto, primeiroDia: ds[0], meses: porMes,
+      });
+    });
+    colaboradores.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    // Conferência de leitura: em um arquivo lido corretamente, a grande maioria tem batidas e jornada
+    estat.batemPonto = colaboradores.filter(c => c.batePonto).length;
+    estat.semJornada = colaboradores.filter(c => c.semHorario || (!c.cargaSemanal && c.batePonto)).length;
+    return {
+      geradoEm: new Date().toISOString(), arquivos: lidos.map(l => l.arquivo),
+      periodo: { inicio: datas[0], fim: ultimaData }, meses, colaboradores, estat,
+    };
+  }
+
+  const api = { lerPlanilha, lerDesligamentos, montar, motivoExclusao };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else raiz.ProcessadorDP = api;
+})(typeof self !== 'undefined' ? self : this);
+
+const LIB_PROC_TEXTO = "// Processador do cartão de ponto (Secullum) -> dados do Dashboard DP.\n// Usado tanto no navegador (upload de pasta no próprio HTML) quanto no Node (atualizar.js).\n(function (raiz) {\n  // Dia da semana (0 = domingo) pelo nome completo ou abreviado, com ou sem acento\n  const DIA_SEMANA = { DOMINGO: 0, DOM: 0, SEGUNDA: 1, SEG: 1, 'TERÇA': 2, TERCA: 2, TER: 2, QUARTA: 3, QUA: 3, QUINTA: 4, QUI: 4, SEXTA: 5, SEX: 5, 'SÁBADO': 6, SABADO: 6, 'SÁB': 6, SAB: 6 };\n  const ROTULOS_BATIDA = ['ENTRADA 1', 'SAÍDA 1', 'ENTRADA 2', 'SAÍDA 2', 'ENTRADA 3', 'SAÍDA 3', 'ENTRADA 4', 'SAÍDA 4'];\n  // Rótulos do cabeçalho do colaborador: o valor fica na mesma coluna, 1 a 3 linhas abaixo\n  const ROTULOS_CAMPO = { 'NOME:': 'nome', 'Nº FOLHA:': 'folha', 'CPF:': 'cpf', 'ADMISSÃO:': 'admissao', 'FUNÇÃO:': 'funcao', 'DEPARTAMENTO:': 'departamento', 'C.T.P.S.:': 'ctps' };\n  const TOLERANCIA_MIN = 10; // CLT art. 58 §1º\n  const JORNADA_PADRAO = [0, 528, 528, 528, 528, 528, 0];\n  const DEPARTAMENTOS_SEM_PONTO = /VENDAS/i; // equipe de vendas não registra ponto\n  // Colaboradores que ficam totalmente fora do sistema\n  const EXCLUSOES = [\n    ['Área de Vendas', c => /VENDAS/i.test(c.departamento || '') || /VENDAS/i.test(c.funcao || '')],\n    ['Função PJ', c => /(^|[\\s\\-–(/])PJ\\s*\\)?\\s*$/i.test(c.funcao || '')],\n    ['Sócio', c => /\\bS[ÓO]CI[OA]S?\\b/i.test(c.funcao || '')],\n    ['Senai', c => /SENAI/i.test(c.funcao || '')],\n  ];\n  const motivoExclusao = c => { const r = EXCLUSOES.find(([, teste]) => teste(c)); return r ? r[0] : null; };\n  const TIPO_LICENCA = { 'LIC MAT': 'Licença maternidade', 'LIC PAT': 'Licença paternidade', 'LIC NOJ': 'Licença nojo', 'LIC GAL': 'Licença gala' };\n\n  // Código de um caractere por dia (usado também no calendário do dashboard)\n  //  T trabalhado  F falta  A atestado/declaração (até o 15º dia)  P atestado após o 15º dia  S suspensão\n  //  X sem marcação (dia de escala sem registro)  I INSS  L licença  V férias  B banco de horas  J abono\n  //  O folga  H feriado  G integração  - sem escala  . fora do contrato\n  function classificaOcorrencia(txt) {\n    const t = txt.replace(/[¨*^]/g, '').trim().toUpperCase();\n    if (t === 'FALTA') return 'F';\n    if (t.startsWith('FALTA J')) return 'J';\n    if (t.startsWith('AT. MED') || t.startsWith('DECLAR')) return 'A';\n    if (t.startsWith('SUSPENS')) return 'S';\n    if (t === 'INSS') return 'I';\n    if (t.startsWith('LIC')) return 'L';\n    if (t.startsWith('FÉRIAS') || t.startsWith('FERIAS')) return 'V';\n    if (t.startsWith('BANCO')) return 'B';\n    if (t.startsWith('ABONO')) return 'J';\n    if (t.startsWith('FOLGA')) return 'O';\n    if (t.startsWith('FERIADO')) return 'H';\n    if (t.startsWith('INTEGRA')) return 'G';\n    return null;\n  }\n\n  const hm = s => { const m = /^(\\d{1,2}):(\\d\\d)/.exec(s || ''); return m ? +m[1] * 60 + +m[2] : null; };\n  const dur = (a, b) => (a == null || b == null) ? 0 : (b >= a ? b - a : b + 1440 - a);\n  const iso = dmy => { const [d, m, y] = dmy.split('/'); return `${y}-${m}-${d}`; };\n  const normaliza = s => s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toUpperCase().replace(/\\s+/g, ' ').trim();\n\n  // Lê uma planilha (ArrayBuffer/Buffer) e devolve os colaboradores com as marcações de cada dia\n  function lerPlanilha(XLSX, conteudo) {\n    const wb = XLSX.read(conteudo, { type: conteudo instanceof ArrayBuffer ? 'array' : 'buffer', dense: true, cellStyles: false, cellHTML: false });\n    const linhas = [];\n    for (const nome of wb.SheetNames) {\n      const ws = wb.Sheets[nome];\n      const dados = ws['!data'] || (Array.isArray(ws) ? ws : null); // modo \"dense\" (SheetJS 0.19+ / 0.18)\n      if (dados) { for (let i = 0; i < dados.length; i++) linhas.push(dados[i] || []); continue; }\n      XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: null }).forEach(r => linhas.push(r.map(v => v == null ? null : { w: String(v) })));\n    }\n    const cel = (i, c) => {\n      const cell = linhas[i] && linhas[i][c];\n      if (!cell) return '';\n      const v = cell.w != null ? cell.w : (cell.v != null ? XLSX.utils.format_cell(cell) : '');\n      return String(v).trim();\n    };\n    const largura = i => (linhas[i] ? linhas[i].length : 0);\n    const ehRotulo = s => /:$/.test(s) || s in ROTULOS_CAMPO;\n    // O Secullum muda a posição das colunas conforme a exportação: tudo é localizado pelos rótulos\n    const colabs = [];\n    let cur = null, cabecalho = false, colBatidas = null;\n    for (let i = 0; i < linhas.length; i++) {\n      const c0 = cel(i, 0);\n      if (c0 === 'EMPRESA:') {\n        cur = { empresa: '', carga: [0, 0, 0, 0, 0, 0, 0], dias: {} };\n        for (let k = i + 1; k <= i + 3 && !cur.empresa; k++) { const v = cel(k, 0); if (v && !ehRotulo(v)) cur.empresa = v; }\n        colabs.push(cur); cabecalho = true;\n      }\n      if (!cur) continue;\n      if (c0 === 'DATA') { // linha de títulos das batidas (repete a cada página)\n        const cols = ROTULOS_BATIDA.map(r => { for (let c = 0; c < largura(i); c++) if (cel(i, c).toUpperCase() === r) return c; return -1; });\n        if (cols[0] >= 0) colBatidas = cols;\n        cabecalho = false;\n        continue;\n      }\n      if (cabecalho) {\n        for (let c = 0; c < largura(i); c++) {\n          const t = cel(i, c); if (!t) continue;\n          const campo = ROTULOS_CAMPO[t.toUpperCase()];\n          if (campo && !cur[campo]) {\n            for (let k = i + 1; k <= i + 3; k++) { const v = cel(k, c); if (v) { if (!ehRotulo(v)) cur[campo] = v; break; } }\n            continue;\n          }\n          const dia = DIA_SEMANA[t.toUpperCase()];\n          if (dia !== undefined) { // jornada do dia: carga diária (\"08:00\") ou pares entrada/saída à direita\n            const horas = [];\n            for (let k = c + 1; k < largura(i); k++) { const h = hm(cel(i, k)); if (h != null) horas.push(h); }\n            let min = 0;\n            if (horas.length === 1) min = horas[0];\n            else for (let k = 0; k + 1 < horas.length; k += 2) min += dur(horas[k], horas[k + 1]);\n            cur.carga[dia] = min;\n          }\n        }\n        continue;\n      }\n      const m = /^(\\d\\d\\/\\d\\d\\/\\d{4})\\s*-/.exec(c0);\n      if (m && colBatidas) cur.dias[iso(m[1])] = { v: colBatidas.map(c => (c >= 0 ? cel(i, c) : '')), fer: /-\\s*Fer/i.test(c0) };\n    }\n    if (colabs.length && !colBatidas) throw new Error('Layout do cartão de ponto não reconhecido: não encontrei a linha de títulos \"DATA / ENTRADA 1 / SAÍDA 1\".');\n    return colabs.filter(c => c.nome).map(c => {\n      c.admissao = /^\\d\\d\\/\\d\\d\\/\\d{4}$/.test(c.admissao || '') ? iso(c.admissao) : null;\n      c.funcao = (c.funcao || '').replace(/\\s*-\\s*\\d{4,}\\s*$/, '').trim();\n      c.departamento = c.departamento || '';\n      delete c.ctps;\n      return c;\n    });\n  }\n\n  function processaDia(data, { v: vals, fer }, carga) {\n    const dow = new Date(data + 'T12:00:00').getDay();\n    const previstoMin = carga[dow];\n    const horas = vals.map(hm);\n    let trabalhado = 0, temBatida = false;\n    for (let k = 0; k < 8; k += 2) {\n      if (horas[k] != null || horas[k + 1] != null) temBatida = true;\n      trabalhado += dur(horas[k], horas[k + 1]);\n    }\n    const txt = vals.find(v => v && hm(v) == null) || '';\n    let cod = temBatida ? 'T' : (txt ? classificaOcorrencia(txt) : null);\n    if (!cod) cod = previstoMin > 0 ? 'X' : '-';\n    if (cod === 'G' && trabalhado > 0) cod = 'T';\n    const ehFeriadoFolga = cod === 'H' || cod === 'O' || fer;\n    let extra = 0;\n    if (cod === 'T') {\n      const dif = trabalhado - (ehFeriadoFolga ? 0 : previstoMin);\n      if (dif > TOLERANCIA_MIN) extra = dif;\n    }\n    const licenca = cod === 'L' ? (TIPO_LICENCA[txt.replace(/[¨*^]/g, '').trim().toUpperCase()] || 'Licença') : null;\n    return { cod, trabalhado, extra, previstoMin, dow, licenca };\n  }\n\n  // Desligamentos.csv (opcional): NOME;DD/MM/AAAA — data vazia = NÃO foi desligado (anula a inferência)\n  function lerDesligamentos(texto) {\n    const mapa = new Map();\n    for (const linha of (texto || '').split(/\\r?\\n/)) {\n      const [nome, data] = linha.split(/[;,\\t]/).map(s => (s || '').trim());\n      if (!nome || /^nome$/i.test(nome)) continue;\n      mapa.set(normaliza(nome), /^\\d\\d\\/\\d\\d\\/\\d{4}$/.test(data) ? iso(data) : null);\n    }\n    return mapa;\n  }\n\n  // lidos: [{ arquivo, colabs }] do mais antigo para o mais recente (o mais recente prevalece em datas repetidas)\n  function montar(lidos, textoDesligamentos) {\n    const pessoas = new Map();\n    for (const { colabs } of lidos) {\n      for (const c of colabs) {\n        const chave = c.cpf || c.nome;\n        const p = pessoas.get(chave) || { dias: {}, cargaPorData: {} };\n        Object.assign(p, { nome: c.nome, folha: c.folha, cpf: c.cpf, admissao: c.admissao, funcao: c.funcao, departamento: c.departamento, empresa: c.empresa });\n        for (const d in c.dias) { p.dias[d] = c.dias[d]; p.cargaPorData[d] = c.carga; }\n        pessoas.set(chave, p);\n      }\n    }\n    if (!pessoas.size) throw new Error('Nenhum cartão de ponto encontrado nos arquivos.');\n    const excluidos = {};\n    pessoas.forEach((p, chave) => { const m = motivoExclusao(p); if (m) { excluidos[m] = (excluidos[m] || 0) + 1; pessoas.delete(chave); } });\n\n    const todasDatas = new Set();\n    pessoas.forEach(p => Object.keys(p.dias).forEach(d => todasDatas.add(d)));\n    const datas = [...todasDatas].sort();\n    const ultimaData = datas[datas.length - 1];\n    const meses = [...new Set(datas.map(d => d.slice(0, 7)))];\n    const desligamentos = lerDesligamentos(textoDesligamentos);\n    const estat = { atestadoAlem15: 0, desligamentosInformados: desligamentos.size, excluidos };\n\n    const colaboradores = [];\n    pessoas.forEach(p => {\n      const ds = Object.keys(p.dias).sort();\n      // Quem bate ponto mas não tem horário cadastrado: assume jornada padrão de 44h (seg-sex 8h48)\n      const temBatida = ds.some(d => p.dias[d].v.some(v => hm(v) != null));\n      let semHorario = false;\n      for (const d of ds) {\n        if (temBatida && p.cargaPorData[d].every(v => !v)) { p.cargaPorData[d] = JORNADA_PADRAO; semHorario = true; }\n      }\n      const semPonto = DEPARTAMENTOS_SEM_PONTO.test(p.departamento || '');\n      const dias = ds.map(d => Object.assign({ d }, processaDia(d, p.dias[d], p.cargaPorData[d])));\n      // Departamentos que não batem ponto: dia sem registro não é ausência\n      if (semPonto) dias.forEach(x => { if (x.cod === 'X') x.cod = '-'; });\n      // Atestados: a empresa responde só pelos 15 primeiros dias consecutivos do afastamento;\n      // do 16º dia em diante o afastamento é previdenciário (P) e sai do absenteísmo\n      let inicioAfast = null;\n      for (const x of dias) {\n        if (x.cod === 'A') {\n          if (!inicioAfast) inicioAfast = x.d;\n          if ((new Date(x.d) - new Date(inicioAfast)) / 864e5 >= 15) { x.cod = 'P'; estat.atestadoAlem15++; }\n        } else if (!'-OH'.includes(x.cod)) inicioAfast = null; // folga/feriado no meio não interrompe o afastamento\n      }\n      // Desligamento: informado em Desligamentos.csv ou inferido (quem bate ponto e não tem nenhuma\n      // batida/ocorrência individual nos últimos 7 dias do período). Departamentos sem ponto nunca são inferidos.\n      const ativos = dias.filter(x => !'HO-X.'.includes(x.cod));\n      const ultimaAtiv = ativos.length ? ativos[ativos.length - 1].d : null;\n      const limite = new Date(ultimaData + 'T12:00:00'); limite.setDate(limite.getDate() - 7);\n      const informado = desligamentos.get(normaliza(p.nome));\n      let demissao = null, demissaoInferida = false;\n      if (informado !== undefined) demissao = informado;\n      else if (temBatida && !semPonto && ultimaAtiv && new Date(ultimaAtiv + 'T12:00:00') < limite) { demissao = ultimaAtiv; demissaoInferida = true; }\n      const inicio = p.admissao && ativos.length && p.admissao > ativos[0].d ? ativos[0].d : p.admissao;\n\n      const porMes = {};\n      for (const x of dias) {\n        if ((inicio && x.d < inicio) || (demissao && x.d > demissao)) x.cod = '.';\n        const mes = x.d.slice(0, 7);\n        const a = porMes[mes] || (porMes[mes] = { cal: '', prev: 0, trab: 0, horasTrab: 0, extra: 0, F: 0, A: 0, S: 0, X: 0, I: 0, P: 0, L: 0, V: 0, B: 0, J: 0, lic: {} });\n        a.cal += x.cod;\n        if (x.cod === '.') continue;\n        if ('FASXJB'.includes(x.cod) || (x.cod === 'T' && x.previstoMin > 0)) a.prev++;\n        if (x.cod === 'T') { a.trab++; a.horasTrab += x.trabalhado; a.extra += x.extra; }\n        if (a[x.cod] !== undefined && x.cod !== 'T') a[x.cod]++;\n        if (x.licenca) a.lic[x.licenca] = (a.lic[x.licenca] || 0) + 1;\n      }\n      colaboradores.push({\n        nome: p.nome, folha: p.folha, admissao: p.admissao, demissao, demissaoInferida,\n        funcao: p.funcao || '(sem função)', departamento: p.departamento || '(sem departamento)',\n        cargaSemanal: p.cargaPorData[ds[ds.length - 1]].reduce((s, v) => s + v, 0),\n        semHorario, batePonto: temBatida, semPonto, primeiroDia: ds[0], meses: porMes,\n      });\n    });\n    colaboradores.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));\n    // Conferência de leitura: em um arquivo lido corretamente, a grande maioria tem batidas e jornada\n    estat.batemPonto = colaboradores.filter(c => c.batePonto).length;\n    estat.semJornada = colaboradores.filter(c => c.semHorario || (!c.cargaSemanal && c.batePonto)).length;\n    return {\n      geradoEm: new Date().toISOString(), arquivos: lidos.map(l => l.arquivo),\n      periodo: { inicio: datas[0], fim: ultimaData }, meses, colaboradores, estat,\n    };\n  }\n\n  const api = { lerPlanilha, lerDesligamentos, montar, motivoExclusao };\n  if (typeof module !== 'undefined' && module.exports) module.exports = api;\n  else raiz.ProcessadorDP = api;\n})(typeof self !== 'undefined' ? self : this);\n";
+const cfgTurnover = tv => ({
+  type: 'bar',
+  data: {
+    labels: tv.map(x => mesCurto(x.mes)),
+    datasets: [{
+      type: 'bar',
+      label: 'Admissões',
+      data: tv.map(x => x.admissoes),
+      backgroundColor: CORES.brand,
+      yAxisID: 'y'
+    }, {
+      type: 'bar',
+      label: 'Desligamentos',
+      data: tv.map(x => x.desligamentos),
+      backgroundColor: CORES.salmao,
+      yAxisID: 'y'
+    }, {
+      type: 'line',
+      label: 'Turnover (%)',
+      data: tv.map(x => x.turnover === null ? null : Number(x.turnover) * 100),
+      borderColor: CORES.acento,
+      backgroundColor: CORES.acento,
+      yAxisID: 'y1',
+      tension: 0.25,
+      pointRadius: 3
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index',
+      intersect: false
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: 'Pessoas'
+        }
+      },
+      y1: {
+        position: 'right',
+        beginAtZero: true,
+        grid: {
+          drawOnChartArea: false
+        },
+        ticks: {
+          callback: v => v + '%'
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'bottom'
+      }
+    }
+  }
+});
+const PONTO_COD = {
+  T: ['Trabalhado', '#EFE9E3'],
+  F: ['Falta', '#F4B9AD'],
+  A: ['Atestado/declaração (até o 15º dia)', '#F6D58E'],
+  P: ['Atestado após o 15º dia', '#E0A93B'],
+  S: ['Suspensão', '#C82A17'],
+  X: ['Dia de escala sem marcação', '#F0A37F'],
+  I: ['INSS', '#CDB8E8'],
+  L: ['Licença', '#B8D4F0'],
+  V: ['Férias', '#BFE3C6'],
+  B: ['Banco de horas', '#B6E0DD'],
+  J: ['Abono', '#D5DCE5'],
+  O: ['Folga', '#F4F1EE'],
+  H: ['Feriado', '#F4F1EE'],
+  G: ['Integração', '#EFE9E3'],
+  '-': ['Sem escala', '#FFFFFF'],
+  '.': ['Fora do contrato', '#FFFFFF']
+};
+const fHoras = min => (min / 60).toLocaleString('pt-BR', {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1
+}) + ' h';
+const fTaxa = (n, d) => d ? (n / d * 100).toLocaleString('pt-BR', {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1
+}) + '%' : '—';
+const barCfg = (labels, datasets, opc = {}) => ({
+  type: 'bar',
+  data: {
+    labels,
+    datasets
+  },
+  options: {
+    indexAxis: opc.horizontal ? 'y' : 'x',
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        stacked: !!opc.stacked,
+        beginAtZero: true
+      },
+      y: {
+        stacked: !!opc.stacked,
+        beginAtZero: true,
+        ticks: opc.pct ? {
+          callback: v => v + '%'
+        } : {}
+      }
+    },
+    plugins: {
+      legend: {
+        display: datasets.length > 1,
+        position: 'bottom'
+      }
+    }
+  }
+});
+const planilhasPonto = files => files.filter(f => /\.(xlsx|xlsm|xls)$/i.test(f.name) && !f.name.startsWith('~$')).sort((a, b) => a.lastModified - b.lastModified);
+const WORKER_CORPO = `
+let lidos = [];
+self.onmessage = async e => {
+  const m = e.data;
+  try {
+    if (m.tipo === 'ler') {
+      lidos = [];
+      for (let i = 0; i < m.arquivos.length; i++) {
+        self.postMessage({ tipo: 'progresso', msg: 'Lendo ' + m.arquivos[i].name + ' (' + (i + 1) + ' de ' + m.arquivos.length + ')…' });
+        lidos.push({ arquivo: m.arquivos[i].name, colabs: ProcessadorDP.lerPlanilha(XLSX, await m.arquivos[i].arrayBuffer()) });
+      }
+      const unicos = new Map(); lidos.forEach(l => l.colabs.forEach(c => unicos.set(c.cpf || c.nome, { nome: c.nome, folha: c.folha || '', cpf: c.cpf || '' })));
+      self.postMessage({ tipo: 'lido', pessoas: [...unicos.values()], arquivos: lidos.map(l => l.arquivo) });
+    } else if (m.tipo === 'montar') {
+      self.postMessage({ tipo: 'montado', dados: ProcessadorDP.montar(lidos, m.csv) });
+    }
+  } catch (err) { self.postMessage({ tipo: 'erro', msg: (err && err.message) || String(err) }); }
+};`;
+function criarProcessadorPonto() {
+  const tag = document.querySelector('script[src*="xlsx"]');
+  let worker = null;
+  if (typeof Worker !== 'undefined' && tag && typeof LIB_PROC_TEXTO === 'string') {
+    try {
+      worker = new Worker(URL.createObjectURL(new Blob(['importScripts(' + JSON.stringify(tag.src) + ');\n' + LIB_PROC_TEXTO + '\n' + WORKER_CORPO], {
+        type: 'text/javascript'
+      })));
+    } catch (e) {
+      worker = null;
+    }
+  }
+  if (worker) {
+    let ouvinte = null;
+    worker.onmessage = e => ouvinte && ouvinte(e.data);
+    worker.onerror = e => {
+      if (e.preventDefault) e.preventDefault();
+      ouvinte && ouvinte({
+        tipo: 'erro',
+        msg: 'Falha ao processar no navegador (arquivo muito grande ou pouca memória). Tente importar um arquivo por vez.'
+      });
+    };
+    const chama = (msg, avisar) => new Promise((ok, erro) => {
+      ouvinte = m => {
+        if (m.tipo === 'progresso') {
+          if (avisar) avisar(m.msg);
+        } else if (m.tipo === 'erro') erro(new Error(m.msg));else ok(m);
+      };
+      worker.postMessage(msg);
+    });
+    return {
+      modo: 'segundo plano',
+      ler: (arquivos, avisar) => chama({
+        tipo: 'ler',
+        arquivos
+      }, avisar),
+      montar: csv => chama({
+        tipo: 'montar',
+        csv
+      }).then(m => m.dados),
+      fim: () => worker.terminate()
+    };
+  }
+  let lidos = [];
+  return {
+    modo: 'tela',
+    ler: async (arquivos, avisar) => {
+      lidos = [];
+      for (let i = 0; i < arquivos.length; i++) {
+        avisar('Lendo ' + arquivos[i].name + ' (' + (i + 1) + ' de ' + arquivos.length + ')…');
+        await new Promise(r => setTimeout(r, 30));
+        lidos.push({
+          arquivo: arquivos[i].name,
+          colabs: ProcessadorDP.lerPlanilha(XLSX, await arquivos[i].arrayBuffer())
+        });
+      }
+      const unicos = new Map();
+      lidos.forEach(l => l.colabs.forEach(c => unicos.set(c.cpf || c.nome, {
+        nome: c.nome,
+        folha: c.folha || '',
+        cpf: c.cpf || ''
+      })));
+      return {
+        pessoas: [...unicos.values()],
+        arquivos: lidos.map(l => l.arquivo)
+      };
+    },
+    montar: async csv => ProcessadorDP.montar(lidos, csv),
+    fim: () => {}
+  };
+}
+const dmy = iso => iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : '';
+function ImportarPontoModal({
+  onClose,
+  onDone
 }) {
   const toast = useToast();
-  const podeEnviar = ehAdm(perfil.papel);
-  const [est, setEst] = useState({
-    fase: 'carregando',
-    url: null,
-    meta: null,
-    erro: null
-  });
-  const [envio, setEnvio] = useState(null);
+  const [fase, setFase] = useState('escolher');
+  const [msg, setMsg] = useState('');
+  const [erro, setErro] = useState(null);
+  const [res, setRes] = useState(null);
+  const [aceita, setAceita] = useState(false);
   const [busy, setBusy] = useState(false);
-  const urlRef = useRef(null);
-  const frameRef = useRef(null);
-  const carregar = async () => {
-    setEst({
-      fase: 'carregando',
-      url: null,
-      meta: null,
-      erro: null
-    });
+  const procRef = useRef(null);
+  useEffect(() => () => {
+    if (procRef.current) procRef.current.fim();
+  }, []);
+  const escolher = async e => {
+    const files = [...(e.target.files || [])];
+    if (!files.length) return;
+    setErro(null);
+    setFase('lendo');
+    setMsg('Preparando…');
     try {
-      const {
-        data: lista,
-        error: e0
-      } = await sb.storage.from(DASH_BUCKET).list('', {
-        search: DASH_ARQ,
-        limit: 10
+      const planilhas = planilhasPonto(files);
+      if (!planilhas.length) throw new Error('Nenhuma planilha (.xlsx) encontrada nos arquivos escolhidos.');
+      if (procRef.current) procRef.current.fim();
+      const proc = criarProcessadorPonto();
+      procRef.current = proc;
+      const lido = await proc.ler(planilhas, setMsg);
+      setMsg('Ligando as pessoas ao cadastro do sistema…');
+      const resolvidos = await rpc('ponto_resolver_vinculos', {
+        p_pessoas: lido.pessoas
       });
-      if (e0) throw e0;
-      const item = (lista || []).find(x => x.name === DASH_ARQ);
-      if (!item) {
-        setEst({
-          fase: 'vazio',
-          url: null,
-          meta: null,
-          erro: null
-        });
-        return;
-      }
-      const {
-        data: blob,
-        error
-      } = await sb.storage.from(DASH_BUCKET).download(DASH_ARQ);
-      if (error) throw error;
-      const html = await blob.text();
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      urlRef.current = URL.createObjectURL(new Blob([html], {
-        type: 'text/html'
-      }));
-      setEst({
-        fase: 'ok',
-        url: urlRef.current,
-        meta: {
-          quando: item.updated_at || item.created_at,
-          tamanho: item.metadata && item.metadata.size || blob.size
-        },
-        erro: null
+      const csv = resolvidos.filter(r => r.metodo).map(r => r.nome + ';' + dmy(r.data_demissao)).join('\n');
+      setMsg('Calculando os indicadores…');
+      const dados = await proc.montar(csv);
+      const mapa = {};
+      resolvidos.forEach(r => {
+        if (r.metodo) mapa[r.nome] = {
+          vinculo_id: r.vinculo_id,
+          metodo: r.metodo
+        };
       });
-    } catch (e) {
-      setEst({
-        fase: 'erro',
-        url: null,
-        meta: null,
-        erro: e
+      const n = dados.colaboradores.length,
+        e0 = dados.estat || {};
+      const pend = dados.colaboradores.filter(c => !mapa[c.nome]);
+      const por = {};
+      dados.colaboradores.forEach(c => {
+        const m = (mapa[c.nome] || {}).metodo || 'sem';
+        por[m] = (por[m] || 0) + 1;
       });
+      setRes({
+        dados,
+        mapa,
+        n,
+        pend,
+        por,
+        arquivos: lido.arquivos,
+        suspeito: !!(n && (e0.batemPonto / n < 0.5 || e0.semJornada / n > 0.3)),
+        inferidas: dados.colaboradores.filter(c => c.demissaoInferida).length
+      });
+      setFase('previa');
+    } catch (x) {
+      setErro(x.message || String(x));
+      setFase('escolher');
     }
   };
-  useEffect(() => {
-    carregar();
-    return () => {
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    };
-  }, []);
-  const escolher = e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!f) return;
-    if (!/\.html?$/i.test(f.name)) return toast('Envie o arquivo HTML gerado pelo Dashboard DP (Salvar HTML com dados).', 'erro');
-    if (f.size > 20 * 1024 * 1024) return toast('O arquivo passa de 20 MB.', 'erro');
-    setEnvio(f);
-  };
-  const enviar = async () => {
+  const importar = async () => {
     setBusy(true);
     try {
-      const {
-        error
-      } = await sb.storage.from(DASH_BUCKET).upload(DASH_ARQ, envio, {
-        upsert: true,
-        contentType: 'text/html;charset=UTF-8',
-        cacheControl: '0'
+      const r = await rpc('importar_ponto', {
+        p_dados: res.dados,
+        p_vinculos: res.mapa
       });
-      if (error) throw error;
-      toast('Dashboard DP atualizado.');
-      setEnvio(null);
-      carregar();
-    } catch (e) {
-      toast(traduzErro(e), 'erro');
+      toast('Ponto importado: ' + fn0(r.colaboradores) + ' pessoas, ' + fn0(r.meses_gravados) + ' meses gravados' + (r.a_conciliar ? ' (' + fn0(r.a_conciliar) + ' a conciliar).' : '.'));
+      onDone();
+    } catch (x) {
+      toast(traduzErro(x), 'erro');
     } finally {
       setBusy(false);
     }
   };
-  const baixarArq = () => {
-    if (!est.url) return;
-    const a = document.createElement('a');
-    a.href = est.url;
-    a.download = DASH_ARQ;
-    a.click();
-  };
-  const telaCheia = () => {
-    const f = frameRef.current;
-    if (f && f.requestFullscreen) f.requestFullscreen();
-  };
-  const tam = n => n ? (n / 1048576).toLocaleString('pt-BR', {
-    maximumFractionDigits: 1
-  }) + ' MB' : '';
-  return React.createElement("div", null, React.createElement(PageHead, {
-    title: "Dashboard DP",
-    sub: est.fase === 'ok' && est.meta ? 'Atualizado em ' + fd(String(est.meta.quando).slice(0, 10)) + (est.meta.tamanho ? ' · ' + tam(est.meta.tamanho) : '') : 'Pontos, ausências e horas extras (cartão de ponto)'
-  }, est.fase === 'ok' && React.createElement(Btn, {
-    onClick: telaCheia
-  }, "Tela cheia"), est.fase === 'ok' && React.createElement(Btn, {
-    onClick: baixarArq
-  }, "Baixar arquivo"), podeEnviar && React.createElement("label", {
-    className: "btn btn-pri cursor-pointer"
-  }, est.fase === 'vazio' ? 'Enviar dashboard' : 'Enviar nova versão', React.createElement("input", {
-    type: "file",
-    accept: ".html,.htm,text/html",
-    className: "hidden",
-    "aria-label": "Arquivo do Dashboard DP",
-    onChange: escolher
-  }))), est.fase === 'carregando' && React.createElement("div", {
-    className: "panel"
-  }, React.createElement(Spinner, {
-    text: "Carregando o dashboard…"
-  })), est.fase === 'erro' && React.createElement("div", {
-    className: "panel"
-  }, React.createElement(Erro, {
-    e: est.erro,
-    onRetry: carregar
-  })), est.fase === 'vazio' && React.createElement("div", {
-    className: "panel"
-  }, React.createElement(Vazio, null, podeEnviar ? 'Nenhum dashboard enviado ainda. Use “Enviar dashboard” e escolha o HTML gerado pelo Dashboard DP.' : 'O dashboard ainda não foi enviado. Fale com o Adm RH ou o Administrador.')), est.fase === 'ok' && React.createElement(React.Fragment, null, React.createElement("iframe", {
-    ref: frameRef,
-    title: "Dashboard DP",
-    src: est.url,
-    sandbox: "allow-scripts allow-downloads allow-modals allow-popups allow-forms",
-    className: "w-full rounded border border-line bg-white",
-    style: {
-      height: 'calc(100vh - 200px)',
-      minHeight: 560
-    }
-  }), React.createElement("p", {
-    className: "mt-2 text-xs text-mute"
-  }, "Contém dados de ponto e atestados, restritos a Administrador, Adm RH e DP. ", podeEnviar ? 'Para atualizar: abra o dashboard acima, clique em Carregar pasta (cartões de ponto do Secullum), depois em Salvar HTML com dados e envie o arquivo gerado em “Enviar nova versão”.' : '')), envio && React.createElement(Modal, {
-    title: "Enviar nova versão do Dashboard DP",
-    onClose: () => setEnvio(null),
+  const pode = fase === 'previa' && res && (!res.suspeito || aceita) && !busy;
+  return React.createElement(Modal, {
+    title: "Importar cartões de ponto",
+    onClose: onClose,
     footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
-      onClick: () => setEnvio(null)
+      onClick: onClose
     }, "Cancelar"), React.createElement(Btn, {
       kind: "pri",
-      disabled: busy,
-      onClick: enviar
-    }, est.fase === 'ok' ? 'Substituir dashboard' : 'Enviar'))
+      disabled: !pode,
+      onClick: importar
+    }, "Importar"))
   }, React.createElement("div", {
-    className: "text-sm space-y-2"
-  }, React.createElement("p", null, "Arquivo: ", React.createElement("b", null, envio.name), " (", tam(envio.size), ")."), est.fase === 'ok' && React.createElement("p", {
+    className: "space-y-4 text-sm"
+  }, React.createElement("p", {
     className: "text-mute"
-  }, "Isto substitui o dashboard atual para todos que têm acesso."), React.createElement("p", {
+  }, "Escolha os arquivos de cartão de ponto exportados do Secullum (.xlsx), um ou vários, do mais antigo ao mais recente. Os meses que estão nos arquivos ", React.createElement("b", null, "substituem"), " os já gravados; os demais ficam como estão. Arquivos grandes levam cerca de 1 minuto para ler."), fase !== 'lendo' && React.createElement(Field, {
+    label: "Arquivos"
+  }, React.createElement("input", {
+    type: "file",
+    multiple: true,
+    accept: ".xlsx,.xlsm,.xls",
+    "aria-label": "Arquivos de ponto",
+    onChange: escolher
+  })), fase === 'lendo' && React.createElement(Spinner, {
+    text: msg
+  }), erro && React.createElement("div", {
+    className: "rounded border border-danger/40 bg-danger/5 p-3 text-danger"
+  }, "Não foi possível ler os arquivos: ", erro), fase === 'previa' && res && React.createElement(React.Fragment, null, React.createElement("p", null, React.createElement("b", null, fn0(res.n)), " pessoas · período ", React.createElement("b", null, dmy(res.dados.periodo.inicio)), " a ", React.createElement("b", null, dmy(res.dados.periodo.fim)), " · ", res.arquivos.length, " arquivo(s)."), React.createElement("ul", {
+    className: "list-disc pl-5 space-y-0.5"
+  }, React.createElement("li", null, "Ligadas ao sistema: ", React.createElement("b", null, fn0(res.n - res.pend.length)), " (", [['cpf', 'por CPF'], ['matricula', 'por matrícula'], ['nome', 'por nome']].filter(([k]) => res.por[k]).map(([k, t]) => fn0(res.por[k]) + ' ' + t).join(', ') || '—', ")"), React.createElement("li", null, "Sem vínculo (a conciliar depois): ", React.createElement("b", {
+    className: res.pend.length ? 'text-acento' : ''
+  }, fn0(res.pend.length)), res.pend.length > 0 && React.createElement("span", {
     className: "text-mute"
-  }, "O arquivo contém dados de colaboradores (nome, ponto, atestados). Confirme que é a versão correta antes de enviar."))));
+  }, " — ", res.pend.slice(0, 5).map(c => c.nome).join('; '), res.pend.length > 5 ? '…' : '')), Object.keys(res.dados.estat.excluidos || {}).length > 0 && React.createElement("li", null, "Fora do ponto por regra: ", Object.entries(res.dados.estat.excluidos).map(([k, v]) => v + ' ' + k).join(', ')), res.inferidas > 0 && React.createElement("li", null, "Desligamentos inferidos pelo ponto (pessoas sem vínculo no sistema): ", fn0(res.inferidas))), res.suspeito && React.createElement("div", {
+    className: "rounded border border-acento/50 bg-acento/5 p-3"
+  }, React.createElement("b", null, "Atenção:"), " a leitura parece incompleta (poucos colaboradores com batidas ou jornada). O layout pode ter vindo diferente do Secullum e os indicadores ficariam errados.", React.createElement("label", {
+    className: "flex gap-2 mt-2"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: aceita,
+    onChange: e => setAceita(e.target.checked)
+  }), " Importar mesmo assim")))));
+}
+function ConciliarPontoModal({
+  pendentes,
+  onClose,
+  onDone
+}) {
+  const toast = useToast();
+  const cad = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('vinculo_id, matricula, nome, cargo, ativo').order('vinculo_id')), []);
+  const [bs, setBs] = useState({});
+  const sugere = p => {
+    const t = norm(bs[p.id] !== undefined ? bs[p.id] : p.nome.split(' ')[0]);
+    if (!t || t.length < 2) return [];
+    return (cad.data || []).filter(c => norm(c.nome + ' ' + c.matricula).includes(t)).sort((a, b) => Number(b.ativo) - Number(a.ativo)).slice(0, 6);
+  };
+  const ligar = async (p, c) => {
+    try {
+      await rpc('vincular_ponto', {
+        p_ponto: p.id,
+        p_vinculo: c.vinculo_id
+      });
+      toast(p.nome + ' ligado(a) à matrícula ' + c.matricula + '.');
+      onDone();
+    } catch (x) {
+      toast(traduzErro(x), 'erro');
+    }
+  };
+  return React.createElement(Modal, {
+    title: "Conciliar pessoas do ponto",
+    onClose: onClose,
+    footer: React.createElement(Btn, {
+      onClick: onClose
+    }, "Fechar")
+  }, React.createElement("div", {
+    className: "space-y-4 text-sm"
+  }, React.createElement("p", {
+    className: "text-mute"
+  }, "Estas pessoas estão no cartão de ponto, mas não foram encontradas no cadastro (nem por CPF, matrícula ou nome). Busque o colaborador e ligue. Se a pessoa ainda não foi cadastrada, cadastre-a em Colaboradores e importe o ponto de novo."), cad.loading && React.createElement(Spinner, null), !pendentes.length && React.createElement(Vazio, null, "Nada a conciliar."), pendentes.map(p => React.createElement("div", {
+    key: p.id,
+    className: "rounded border border-line p-3"
+  }, React.createElement("div", {
+    className: "font-medium"
+  }, p.nome, " ", React.createElement("span", {
+    className: "text-xs text-mute"
+  }, "· Nº folha ", p.folha || '—', " · ", p.departamento_ponto || 'sem departamento')), React.createElement(Input, {
+    className: "mt-2",
+    "aria-label": 'Buscar para ' + p.nome,
+    placeholder: "Buscar por nome ou matrícula",
+    value: bs[p.id] !== undefined ? bs[p.id] : p.nome.split(' ')[0],
+    onChange: e => setBs({
+      ...bs,
+      [p.id]: e.target.value
+    })
+  }), React.createElement("div", {
+    className: "mt-2 flex flex-wrap gap-2"
+  }, sugere(p).map(c => React.createElement("button", {
+    key: c.vinculo_id,
+    className: "rounded border border-line px-2 py-1 text-left hover:bg-canvas",
+    onClick: () => ligar(p, c)
+  }, c.matricula, " · ", c.nome, React.createElement("span", {
+    className: "block text-xs text-mute"
+  }, c.cargo, c.ativo ? '' : ' · desligado'))))))));
+}
+function CalendarioPonto({
+  pessoa,
+  onClose
+}) {
+  const q = useAsync(() => run(sb.from('ponto_mes').select('mes, cal, prev, f, a, s, x, i, p, l, v, extra').eq('ponto_colaborador_id', pessoa.id).order('mes')), [pessoa.id]);
+  const dow = (ym, dia) => new Date(ym + '-' + String(dia).padStart(2, '0') + 'T12:00:00').getDay();
+  return React.createElement(Modal, {
+    title: pessoa.nome,
+    onClose: onClose,
+    footer: React.createElement(Btn, {
+      onClick: onClose
+    }, "Fechar")
+  }, React.createElement("div", {
+    className: "text-sm space-y-3"
+  }, React.createElement("p", {
+    className: "text-mute"
+  }, pessoa.cargo || pessoa.funcao_ponto || '', pessoa.departamento ? ' · ' + pessoa.departamento : '', pessoa.matricula ? ' · matrícula ' + pessoa.matricula : ''), q.loading && React.createElement(Spinner, null), (q.data || []).map(m => {
+    const ym = m.mes.slice(0, 7);
+    return React.createElement("div", {
+      key: m.mes
+    }, React.createElement("div", {
+      className: "font-medium mb-1"
+    }, mesCurto(ym), " ", React.createElement("span", {
+      className: "text-xs text-mute font-normal"
+    }, "faltas ", m.f, " · atestados ", m.a, " · sem marcação ", m.x, " · férias ", m.v, " · horas extras ", fHoras(m.extra))), React.createElement("div", {
+      className: "flex flex-wrap gap-1"
+    }, m.cal.split('').map((c, i) => React.createElement("span", {
+      key: i,
+      title: i + 1 + '/' + ym.slice(5) + ' — ' + (PONTO_COD[c] || ['?'])[0],
+      className: "inline-flex flex-col items-center justify-center rounded border border-line text-[10px] leading-none w-7 h-9",
+      style: {
+        background: (PONTO_COD[c] || [0, '#fff'])[1],
+        color: c === 'S' ? '#fff' : undefined
+      }
+    }, React.createElement("span", {
+      className: "text-[9px] opacity-70"
+    }, i + 1), React.createElement("b", null, c === '-' || c === '.' ? '·' : c)))));
+  }), React.createElement("div", {
+    className: "flex flex-wrap gap-x-3 gap-y-1 text-xs text-mute pt-2 border-t border-line"
+  }, Object.entries(PONTO_COD).filter(([k]) => !'-.'.includes(k)).map(([k, [n, cor]]) => React.createElement("span", {
+    key: k,
+    className: "inline-flex items-center gap-1"
+  }, React.createElement("span", {
+    className: "inline-block w-3 h-3 rounded-sm border border-line",
+    style: {
+      background: cor
+    }
+  }), k, " ", n)))));
+}
+const ORD_PONTO = {
+  nome: p => p.nome,
+  dep: p => p.departamento,
+  abs: p => p.taxa,
+  afast: p => p.afastados,
+  he: p => p.extra
+};
+function DashboardDP({
+  perfil
+}) {
+  const {
+    deps
+  } = useLook();
+  const podeImportar = ehPessoal(perfil.papel);
+  const [de, setDe] = useState(ymAtual(-11));
+  const [ate, setAte] = useState(ymAtual(0));
+  const [dep, setDep] = useState('');
+  const [busca, setBusca] = useState('');
+  const [imp, setImp] = useState(false);
+  const [conc, setConc] = useState(false);
+  const [pessoa, setPessoa] = useState(null);
+  const [page, setPage] = useState(0);
+  const ord = useOrdem({
+    k: 'nome',
+    dir: 1
+  }, () => setPage(0));
+  const depArg = dep ? Number(dep) : null;
+  const tv = useAsync(() => rpc('fn_turnover', {
+    p_ini: de + '-01',
+    p_fim: ate + '-01',
+    p_dep: depArg
+  }), [de, ate, dep]);
+  const ponto = useAsync(() => fetchAll(() => sb.from('v_ponto_mes').select('ponto_colaborador_id, mes, prev, trab, horas_trab, extra, f, a, s, x, i, p, l, v, b, j, nome, vinculo_id, bate_ponto, sem_ponto, departamento_id, departamento, cargo, funcao_ponto, matricula, ativo').order('id')), []);
+  const cad = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('vinculo_id, cargo, departamento_id, ativo').eq('ativo', true).order('vinculo_id')), []);
+  const ult = useAsync(() => run(sb.from('ponto_importacao').select('*').order('id', {
+    ascending: false
+  }).limit(1)), []);
+  const pend = useAsync(() => fetchAll(() => sb.from('v_ponto_colaborador').select('id, nome, folha, departamento_ponto').is('vinculo_id', null).order('id')), []);
+  const recarrega = () => {
+    ponto.reload();
+    ult.reload();
+    pend.reload();
+    cad.reload();
+  };
+  const linhas = ponto.data || [];
+  const meses = useMemo(() => [...new Set(linhas.map(r => r.mes.slice(0, 7)))].sort().filter(m => m >= de && m <= ate), [ponto.data, de, ate]);
+  const sel = useMemo(() => linhas.filter(r => {
+    const m = r.mes.slice(0, 7);
+    return m >= de && m <= ate && (!dep || String(r.departamento_id) === dep);
+  }), [ponto.data, de, ate, dep]);
+  const selAbs = sel.filter(r => r.bate_ponto && !r.sem_ponto);
+  const soma = (rs, k) => rs.reduce((t, r) => t + Number(r[k]), 0);
+  const aus = rs => soma(rs, 'f') + soma(rs, 'a') + soma(rs, 's') + soma(rs, 'x');
+  const porMes = fn => meses.map(m => fn(sel.filter(r => r.mes.slice(0, 7) === m)));
+  const ultimo = meses[meses.length - 1];
+  const selUlt = sel.filter(r => r.mes.slice(0, 7) === ultimo);
+  const tvd = tv.data || [],
+    last = tvd.length ? tvd[tvd.length - 1] : null;
+  const medias = tvd.filter(x => x.turnover !== null).map(x => Number(x.turnover));
+  const media = medias.length ? medias.reduce((a, b) => a + b, 0) / medias.length : null;
+  const gente = useMemo(() => {
+    const m = new Map();
+    sel.forEach(r => {
+      const o = m.get(r.ponto_colaborador_id) || {
+        id: r.ponto_colaborador_id,
+        nome: r.nome,
+        matricula: r.matricula,
+        vinculo_id: r.vinculo_id,
+        cargo: r.cargo,
+        funcao_ponto: r.funcao_ponto,
+        departamento: r.departamento,
+        bate: r.bate_ponto && !r.sem_ponto,
+        prev: 0,
+        aus: 0,
+        afastados: 0,
+        extra: 0
+      };
+      o.prev += r.prev;
+      o.aus += r.f + r.a + r.s + r.x;
+      o.afastados += r.a + r.p + r.i + r.l;
+      o.extra += r.extra;
+      m.set(r.ponto_colaborador_id, o);
+    });
+    return [...m.values()].map(o => ({
+      ...o,
+      taxa: o.bate && o.prev ? o.aus / o.prev * 100 : null
+    }));
+  }, [sel]);
+  const lista = ord.aplica(gente.filter(g => !busca || norm(g.nome).includes(norm(busca)) || String(g.matricula || '').includes(busca)), ORD_PONTO);
+  const heDep = useMemo(() => {
+    const m = new Map();
+    sel.forEach(r => {
+      const k = r.departamento || (r.departamento_ponto ? 'Sem vínculo' : 'Sem vínculo');
+      m.set(k, (m.get(k) || 0) + r.extra);
+    });
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  }, [sel]);
+  const porFuncao = useMemo(() => {
+    const m = new Map();
+    (cad.data || []).filter(c => !dep || String(c.departamento_id) === dep).forEach(c => m.set(c.cargo, (m.get(c.cargo) || 0) + 1));
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  }, [cad.data, dep]);
+  const KPI = ({
+    n,
+    v,
+    s
+  }) => React.createElement("div", {
+    className: "px-4 py-3"
+  }, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, n), React.createElement("div", {
+    className: "font-display text-xl tabular-nums"
+  }, v), s && React.createElement("div", {
+    className: "text-xs text-mute"
+  }, s));
+  const temPonto = linhas.length > 0;
+  return React.createElement("div", null, React.createElement(PageHead, {
+    title: "Dashboard DP",
+    sub: ult.data && ult.data[0] ? 'Ponto importado em ' + dmy(String(ult.data[0].criado_em).slice(0, 10)) + ' · ' + (ult.data[0].arquivos || []).join(', ') + ' · período ' + dmy(ult.data[0].periodo_ini) + ' a ' + dmy(ult.data[0].periodo_fim) : 'Pessoas (base do sistema) e ponto'
+  }, podeImportar && React.createElement(Btn, {
+    kind: "pri",
+    onClick: () => setImp(true)
+  }, "Importar ponto")), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-x-4 gap-y-2 mb-4"
+  }, React.createElement("div", {
+    className: "flex items-center gap-2 text-sm"
+  }, React.createElement("span", {
+    className: "text-mute"
+  }, "De"), React.createElement(MesAnoPicker, {
+    className: "w-48",
+    valor: de,
+    rotulo: "Dash DP de",
+    limpavel: false,
+    max: ate,
+    onChange: m => m && setDe(m)
+  })), React.createElement("div", {
+    className: "flex items-center gap-2 text-sm"
+  }, React.createElement("span", {
+    className: "text-mute"
+  }, "Até"), React.createElement(MesAnoPicker, {
+    className: "w-48",
+    valor: ate,
+    rotulo: "Dash DP até",
+    limpavel: false,
+    min: de,
+    onChange: m => m && setAte(m)
+  })), React.createElement(Select, {
+    "aria-label": "Departamento",
+    className: "w-56",
+    value: dep,
+    onChange: e => setDep(e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, "Todos os departamentos"), deps.filter(d => d.ativo).map(d => React.createElement("option", {
+    key: d.id,
+    value: d.id
+  }, d.nome)))), pend.data && pend.data.length > 0 && React.createElement("div", {
+    className: "rounded border border-acento/40 bg-acento/5 px-3 py-2 mb-4 text-sm flex flex-wrap items-center gap-3"
+  }, React.createElement("span", null, React.createElement("b", null, fn0(pend.data.length)), " pessoa(s) do ponto sem vínculo com o cadastro do sistema ficam fora dos números por departamento."), podeImportar && React.createElement(Btn, {
+    onClick: () => setConc(true)
+  }, "Conciliar")), React.createElement("h2", {
+    className: "font-display text-lg mb-2"
+  }, "Pessoas ", React.createElement("span", {
+    className: "text-xs text-mute font-body"
+  }, "mesma base e mesmo cálculo do Painel")), React.createElement("div", {
+    className: "panel mb-4"
+  }, React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-5 divide-x divide-line border-b border-line"
+  }, React.createElement(KPI, {
+    n: 'Headcount (fim de ' + (last ? mesCurto(last.mes) : '—') + ')',
+    v: last ? fn0(last.headcount_fim) : '—'
+  }), React.createElement(KPI, {
+    n: "Admissões no mês",
+    v: last ? fn0(last.admissoes) : '—'
+  }), React.createElement(KPI, {
+    n: "Desligamentos no mês",
+    v: last ? fn0(last.desligamentos) : '—'
+  }), React.createElement(KPI, {
+    n: "Turnover do mês",
+    v: last ? fpct(last.turnover) : '—'
+  }), React.createElement(KPI, {
+    n: "Turnover médio do período",
+    v: fpct(media)
+  })), React.createElement("div", {
+    className: "p-4"
+  }, React.createElement("p", {
+    className: "text-xs text-mute mb-3"
+  }, "Turnover = ((admissões + desligamentos) ÷ 2) ÷ headcount do fim do mês anterior. Fonte: cadastro de colaboradores do sistema."), tv.data ? React.createElement(ChartCanvas, {
+    config: cfgTurnover(tv.data),
+    height: 280
+  }) : React.createElement(Spinner, null))), React.createElement("div", {
+    className: "panel p-4 mb-6"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-3"
+  }, "Colaboradores ativos por função (15 maiores)"), React.createElement(ChartCanvas, {
+    config: barCfg(porFuncao.map(x => x[0]), [{
+      label: 'Colaboradores',
+      data: porFuncao.map(x => x[1]),
+      backgroundColor: CORES.brand
+    }], {
+      horizontal: true
+    }),
+    height: Math.max(220, porFuncao.length * 24)
+  })), React.createElement("h2", {
+    className: "font-display text-lg mb-2"
+  }, "Ponto ", React.createElement("span", {
+    className: "text-xs text-mute font-body"
+  }, "cartão de ponto (Secullum)")), !temPonto && !ponto.loading ? React.createElement("div", {
+    className: "panel mb-6"
+  }, React.createElement(Vazio, null, "Nenhum ponto importado ainda.", podeImportar ? ' Use Importar ponto e escolha os cartões de ponto.' : ' Peça ao DP ou ao Adm RH para importar.')) : React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "panel mb-4"
+  }, React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 divide-x divide-line"
+  }, React.createElement(KPI, {
+    n: "Absenteísmo no período",
+    v: fTaxa(aus(selAbs), soma(selAbs, 'prev')),
+    s: fn0(aus(selAbs)) + ' dias de ausência'
+  }), React.createElement(KPI, {
+    n: "Dias afastados (≤ 15º dia)",
+    v: fn0(soma(sel, 'a')),
+    s: 'total ' + fn0(soma(sel, 'a') + soma(sel, 'p') + soma(sel, 'i') + soma(sel, 'l')) + ' (inclui INSS e licenças)'
+  }), React.createElement(KPI, {
+    n: 'Pessoas em férias em ' + (ultimo ? mesCurto(ultimo) : '—'),
+    v: fn0(selUlt.filter(r => r.v > 0).length)
+  }), React.createElement(KPI, {
+    n: 'Horas extras em ' + (ultimo ? mesCurto(ultimo) : '—'),
+    v: fHoras(soma(selUlt, 'extra'))
+  }))), React.createElement("div", {
+    className: "grid lg:grid-cols-2 gap-4 mb-4"
+  }, React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Absenteísmo"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Dias de ausência ÷ dias previstos · só quem bate ponto"), React.createElement(ChartCanvas, {
+    config: {
+      type: 'line',
+      data: {
+        labels: meses.map(mesCurto),
+        datasets: [{
+          label: 'Absenteísmo (%)',
+          data: meses.map(m => {
+            const rs = selAbs.filter(r => r.mes.slice(0, 7) === m);
+            const p = soma(rs, 'prev');
+            return p ? Math.round(aus(rs) / p * 1000) / 10 : null;
+          }),
+          borderColor: CORES.acento,
+          backgroundColor: CORES.acento,
+          tension: 0.25,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: v => v + '%'
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            display: false
+          }
+        }
+      }
+    },
+    height: 240
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Composição das ausências"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Dias por motivo (atestados até o 15º dia) · só quem bate ponto"), React.createElement(ChartCanvas, {
+    config: barCfg(meses.map(mesCurto), [['Faltas', 'f', CORES.acento], ['Atestados/declarações', 'a', '#E0A93B'], ['Suspensões', 's', CORES.brand], ['Sem marcação', 'x', CORES.areia]].map(([l, k, c]) => ({
+      label: l,
+      backgroundColor: c,
+      data: meses.map(m => soma(selAbs.filter(r => r.mes.slice(0, 7) === m), k))
+    })), {
+      stacked: true
+    }),
+    height: 240
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Dias afastados"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Atestados, INSS e licenças"), React.createElement(ChartCanvas, {
+    config: barCfg(meses.map(mesCurto), [['Atestado (até o 15º dia)', 'a', '#E0A93B'], ['Atestado após o 15º dia', 'p', CORES.acento], ['INSS', 'i', CORES.brand], ['Licenças', 'l', CORES.areia]].map(([l, k, c]) => ({
+      label: l,
+      backgroundColor: c,
+      data: porMes(rs => soma(rs, k))
+    })), {
+      stacked: true
+    }),
+    height: 240
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Pessoas em férias"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Colaboradores com ao menos 1 dia de férias no mês (pelo ponto)"), React.createElement(ChartCanvas, {
+    config: barCfg(meses.map(mesCurto), [{
+      label: 'Pessoas em férias',
+      backgroundColor: CORES.brand,
+      data: porMes(rs => rs.filter(r => r.v > 0).length)
+    }]),
+    height: 240
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Horas extras por mês"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Horas além da jornada do dia (tolerância de 10 min/dia). Não separa hora paga de banco de horas."), React.createElement(ChartCanvas, {
+    config: barCfg(meses.map(mesCurto), [{
+      label: 'Horas extras',
+      backgroundColor: CORES.brand,
+      data: porMes(rs => Math.round(soma(rs, 'extra') / 6) / 10)
+    }]),
+    height: 240
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Horas extras por departamento"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Total do período"), React.createElement(ChartCanvas, {
+    config: barCfg(heDep.map(x => x[0]), [{
+      label: 'Horas extras',
+      backgroundColor: CORES.brand,
+      data: heDep.map(x => Math.round(x[1] / 6) / 10)
+    }], {
+      horizontal: true
+    }),
+    height: Math.max(240, heDep.length * 24)
+  }))), React.createElement("div", {
+    className: "panel mb-4"
+  }, React.createElement("div", {
+    className: "p-4 border-b border-line flex flex-wrap items-center gap-3"
+  }, React.createElement("h2", {
+    className: "font-display text-base"
+  }, "Colaboradores"), React.createElement(Input, {
+    className: "w-64",
+    placeholder: "Buscar por nome ou matrícula",
+    "aria-label": "Buscar colaborador",
+    value: busca,
+    onChange: e => {
+      setBusca(e.target.value);
+      setPage(0);
+    }
+  }), React.createElement("span", {
+    className: "text-xs text-mute"
+  }, "Clique em uma linha para ver o calendário do ponto.")), React.createElement("div", {
+    className: "overflow-x-auto"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement(ThOrd, {
+    k: "nome",
+    ord: ord
+  }, "Colaborador"), React.createElement("th", null, "Cargo"), React.createElement(ThOrd, {
+    k: "dep",
+    ord: ord
+  }, "Departamento"), React.createElement(ThOrd, {
+    k: "abs",
+    ord: ord
+  }, "Absenteísmo"), React.createElement(ThOrd, {
+    k: "afast",
+    ord: ord
+  }, "Dias afastados"), React.createElement(ThOrd, {
+    k: "he",
+    ord: ord
+  }, "Horas extras"))), React.createElement("tbody", null, lista.slice(page * 50, page * 50 + 50).map(g => React.createElement("tr", {
+    key: g.id,
+    className: "cursor-pointer",
+    onClick: () => setPessoa(g)
+  }, React.createElement("td", {
+    className: "font-medium"
+  }, g.nome, !g.vinculo_id && React.createElement("span", {
+    className: "ml-2"
+  }, React.createElement(Badge, {
+    tone: "aviso"
+  }, "Sem vínculo")), React.createElement("div", {
+    className: "text-xs text-mute font-normal"
+  }, g.matricula || '')), React.createElement("td", null, g.cargo || g.funcao_ponto || '—'), React.createElement("td", null, g.departamento || '—'), React.createElement("td", {
+    className: "tabular-nums"
+  }, g.taxa === null ? '—' : g.taxa.toLocaleString('pt-BR', {
+    maximumFractionDigits: 1
+  }) + '%'), React.createElement("td", {
+    className: "tabular-nums"
+  }, fn0(g.afastados)), React.createElement("td", {
+    className: "tabular-nums"
+  }, fHoras(g.extra)))))), !lista.length && React.createElement(Vazio, null, "Nenhum colaborador no filtro.")), React.createElement(Pager, {
+    total: lista.length,
+    page: page,
+    size: 50,
+    onPage: setPage
+  })), React.createElement("p", {
+    className: "text-xs text-mute mb-6"
+  }, "Absenteísmo = (faltas + atestados/declarações até o 15º dia + suspensões + dias de escala sem marcação) ÷ dias previstos de trabalho; só entram quem bate ponto. Vendas, funções PJ, sócios e Senai não batem ponto e ficam fora dos números de ponto, mas contam nos indicadores de pessoas.")), imp && React.createElement(ImportarPontoModal, {
+    onClose: () => setImp(false),
+    onDone: () => {
+      setImp(false);
+      recarrega();
+    }
+  }), conc && React.createElement(ConciliarPontoModal, {
+    pendentes: pend.data || [],
+    onClose: () => setConc(false),
+    onDone: recarrega
+  }), pessoa && React.createElement(CalendarioPonto, {
+    pessoa: pessoa,
+    onClose: () => setPessoa(null)
+  }));
 }
 const MENU = {
   get admin_rh() { return MENU.admin; },
