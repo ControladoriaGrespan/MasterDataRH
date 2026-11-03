@@ -9029,6 +9029,7 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
+const APP_VERSAO = '2026-10-29 (migrações até a 016)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
   admin: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['dashdp', 'Dashboard DP'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos'], ['importacao', 'Importar colaboradores'], ['cadastros', 'Cadastros'], ['auditoria', 'Auditoria']],
@@ -9095,7 +9096,10 @@ function Shell({
     className: "font-semibold text-sm"
   }, perfil.nome), React.createElement("div", {
     className: "text-white/60 mb-2"
-  }, PAPEL_ROTULO[perfil.papel] || perfil.papel), React.createElement("button", {
+  }, PAPEL_ROTULO[perfil.papel] || perfil.papel), React.createElement("div", {
+    className: "text-white/40 text-[10px] mb-2",
+    title: "Versão do sistema carregada neste navegador"
+  }, "Versão " + APP_VERSAO), React.createElement("button", {
     className: "underline text-white/80",
     onClick: () => setSenha(true)
   }, "Alterar senha"), " · ", React.createElement("button", {
