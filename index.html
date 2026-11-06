@@ -553,6 +553,7 @@ const corDepto = id => {
 const PAPEL_ROTULO = {
   admin: 'Administrador',
   admin_rh: 'Adm RH',
+  seg_trabalho: 'Seg Trabalho',
   dp: 'DP',
   rs: 'RS (Recrutamento e Seleção)',
   gestor: 'Gestor'
@@ -999,7 +1000,8 @@ function Colaboradores({
   perfil
 }) {
   const rh = ehPessoal(perfil.papel);
-  const ve = rh || perfil.papel === 'rs';
+  const segUser = perfil.papel === 'seg_trabalho';
+  const ve = rh || perfil.papel === 'rs' || segUser;
   const {
     deps,
     gestores
@@ -1016,6 +1018,7 @@ function Colaboradores({
   const [page, setPage] = useState(0);
   const [sel, setSel] = useState(null);
   const [adm, setAdm] = useState(false);
+  const [trein, setTrein] = useState(false);
   const q = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('*').order('vinculo_id')), []);
   const ord = useOrdem({
     k: 'nome',
@@ -1060,10 +1063,12 @@ function Colaboradores({
   return React.createElement("div", null, React.createElement(PageHead, {
     title: ve ? 'Colaboradores' : 'Minha equipe',
     sub: ve ? rh ? 'Base única de pessoas e vínculos.' : 'Consulta da base de colaboradores (somente leitura).' : 'Você vê os colaboradores sob a sua hierarquia.'
-  }, React.createElement(Btn, {
+  }, (segUser || perfil.papel === 'admin') && React.createElement(Btn, {
+    onClick: () => setTrein(true)
+  }, "Registrar Treinamento"), !segUser && React.createElement(Btn, {
     onClick: () => exportar('xlsx'),
     disabled: !rows.length
-  }, "Exportar Excel"), React.createElement(Btn, {
+  }, "Exportar Excel"), !segUser && React.createElement(Btn, {
     onClick: () => exportar('csv'),
     disabled: !rows.length
   }, "Exportar CSV"), ehAdm(perfil.papel) && React.createElement("a", {
@@ -1190,6 +1195,10 @@ function Colaboradores({
       q.reload();
       toast('Colaborador admitido.');
     }
+  }), trein && React.createElement(TreinamentoModal, {
+    pessoas: q.data || [],
+    onClose: () => setTrein(false),
+    onDone: () => setTrein(false)
   }));
 }
 function Dl({
@@ -1212,7 +1221,9 @@ function Detalhe({
   const rh = ehPessoal(perfil.papel);
   const toast = useToast();
   const [aba, setAba] = useState('dados');
-  const abas = [['dados', 'Dados']].concat(rh ? [['hist', 'Histórico'], ['exp', 'Experiência']] : []).concat(perfil.papel === 'rs' ? [] : [['ferias', 'Férias']]).concat(rh ? [['salario', 'Salário'], ['deslig', row.ativo ? 'Desligar' : 'Desligamento'], ['esocial', 'eSocial']] : []);
+  const seg = perfil.papel === 'seg_trabalho';
+  const segAcesso = seg || perfil.papel === 'admin';
+  const abas = seg ? [['dados', 'Dados'], ['hist', 'Histórico'], ['seg', 'Seg Trabalho']] : [['dados', 'Dados']].concat(rh ? [['hist', 'Histórico'], ['exp', 'Experiência']] : []).concat(segAcesso ? [['seg', 'Seg Trabalho']] : []).concat(perfil.papel === 'rs' ? [] : [['ferias', 'Férias']]).concat(rh ? [['salario', 'Salário'], ['deslig', row.ativo ? 'Desligar' : 'Desligamento'], ['esocial', 'eSocial']] : []);
   return React.createElement(Modal, {
     wide: true,
     title: row.nome,
@@ -1233,10 +1244,12 @@ function Detalhe({
     row: row,
     rh: rh,
     onChanged: onChanged
-  }), aba === 'hist' && React.createElement(HistoricoTab, {
+  }), aba === 'hist' && React.createElement(seg ? HistoricoSegTab : HistoricoTab, {
     row: row,
     perfil: perfil,
     onChanged: onChanged
+  }), aba === 'seg' && segAcesso && React.createElement(SegTrabalhoTab, {
+    row: row
   }), aba === 'exp' && React.createElement(ExperienciaTab, {
     row: row,
     perfil: perfil,
@@ -1264,6 +1277,11 @@ const HIST_TIPOS = {
   mudanca_cargo: 'Mudança de cargo',
   mudanca_departamento: 'Mudança de departamento',
   certificado: 'Certificado',
+  experiencia: 'Experiência',
+  seg_ocorrencia: 'Seg. Trabalho · Ocorrência',
+  seg_atestado: 'Seg. Trabalho · Atestado',
+  seg_treinamento: 'Seg. Trabalho · Treinamento',
+  restrito: 'Restrito',
   outro: 'Outro'
 };
 const HIST_MANUAIS = ['aumento_salario', 'promocao', 'mudanca_cargo', 'mudanca_departamento', 'certificado', 'outro'];
@@ -1275,7 +1293,8 @@ const histTom = t => ({
   aumento_salario: 'destaque',
   promocao: 'destaque',
   mudanca_cargo: 'destaque',
-  mudanca_departamento: 'destaque'
+  mudanca_departamento: 'destaque',
+  seg_ocorrencia: 'aviso'
 })[t] || 'neutro';
 function NovaAtualizacao({
   row,
@@ -6496,8 +6515,8 @@ function DeptsUsuarioModal({
     onChange: setSel
   }));
 }
-const PERFIS_LISTA = [['admin', 'Administrador'], ['admin_rh', 'Adm RH'], ['dp', 'DP'], ['rs', 'RS (Recrutamento e Seleção)'], ['gestor', 'Gestor']];
-const opcoesPerfil = adm => PERFIS_LISTA.filter(o => adm || o[0] !== 'admin').map(([k, n]) => React.createElement("option", {
+const PERFIS_LISTA = [['admin', 'Administrador'], ['admin_rh', 'Adm RH'], ['dp', 'DP'], ['rs', 'RS (Recrutamento e Seleção)'], ['gestor', 'Gestor'], ['seg_trabalho', 'Seg Trabalho']];
+const opcoesPerfil = adm => PERFIS_LISTA.filter(o => adm || (o[0] !== 'admin' && o[0] !== 'seg_trabalho')).map(([k, n]) => React.createElement("option", {
   key: k,
   value: k
 }, n));
@@ -6768,7 +6787,7 @@ function CadUsuarios({
     ord: ordU
   }, "Perfil"), React.createElement("th", null, "Gestor vinculado"), React.createElement("th", null, "Departamentos"), React.createElement("th", null, "Situação"), React.createElement("th", null))), React.createElement("tbody", null, ordU.aplica(q.data.p, ORD_USR).map(u => {
     const eu = u.user_id === me;
-    const bloq = !souAdm && u.papel === 'admin';
+    const bloq = !souAdm && (u.papel === 'admin' || u.papel === 'seg_trabalho');
     const meusDeps = q.data.pd.filter(x => x.user_id === u.user_id).map(x => x.departamento_id);
     const m = ed[u.user_id];
     return React.createElement("tr", {
@@ -6784,10 +6803,10 @@ function CadUsuarios({
     }, " (você)")), React.createElement("td", null, React.createElement(Select, {
       "aria-label": "Perfil",
       disabled: eu || bloq,
-      title: eu ? 'Você não pode alterar o seu próprio perfil' : bloq ? 'Só o Administrador do sistema altera um Administrador' : undefined,
+      title: eu ? 'Você não pode alterar o seu próprio perfil' : bloq ? 'Só o Administrador do sistema altera um usuário Administrador ou Seg Trabalho' : undefined,
       value: val(u, 'papel'),
       onChange: e => mud(u.user_id, 'papel', e.target.value)
-    }, opcoesPerfil(souAdm || val(u, 'papel') === 'admin'))), React.createElement("td", null, React.createElement(Select, {
+    }, opcoesPerfil(souAdm || val(u, 'papel') === 'admin' || val(u, 'papel') === 'seg_trabalho'))), React.createElement("td", null, React.createElement(Select, {
       "aria-label": "Gestor vinculado",
       disabled: val(u, 'papel') !== 'gestor',
       value: val(u, 'gestor_id') ?? '',
@@ -7901,28 +7920,803 @@ function PainelCustos({
     }
   }));
 }
+const ehSeg = p => p === 'seg_trabalho';
+const SEG_TIPOS = {
+  acidente: 'Acidente',
+  incidente: 'Incidente',
+  ato_inseguro: 'Ato inseguro'
+};
+const segTom = t => ({
+  acidente: 'perigo',
+  incidente: 'aviso',
+  ato_inseguro: 'neutro'
+})[t] || 'neutro';
+const nomeArquivoSeguro = n => String(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-80);
+function HistoricoSegTab({
+  row
+}) {
+  const q = useAsync(() => rpc('listar_historico', {
+    p_vinculo: row.vinculo_id
+  }), [row.vinculo_id]);
+  const lista = q.data || [];
+  return React.createElement("div", null, React.createElement("p", {
+    className: "text-xs text-mute mb-3"
+  }, "Você vê apenas os registros de Segurança do Trabalho. Os demais lançamentos do colaborador ficam ocultos."), q.error && React.createElement(Erro, {
+    e: q.error,
+    onRetry: q.reload
+  }), q.loading ? React.createElement(Spinner, null) : !lista.length ? React.createElement(Vazio, null, "Nenhum registro no histórico.") : React.createElement("ol", {
+    className: "relative border-l-2 border-line ml-2 space-y-3",
+    "aria-label": "Linha do tempo"
+  }, lista.map(h => React.createElement("li", {
+    key: h.id,
+    className: "ml-4 relative"
+  }, React.createElement("span", {
+    className: 'absolute -left-[22px] top-2 h-2.5 w-2.5 rounded-full border-2 border-white ' + (h.restrito ? 'bg-line' : 'bg-acento')
+  }), React.createElement("div", {
+    className: 'rounded border border-line px-3 py-2 ' + (h.restrito ? 'bg-canvas' : 'bg-white')
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2 text-sm"
+  }, React.createElement("span", {
+    className: "tabular-nums text-mute w-24"
+  }, fd(h.data)), h.restrito ? React.createElement("span", {
+    className: "font-semibold blur-sm select-none",
+    "aria-hidden": "true"
+  }, "Registro restrito do RH") : React.createElement("span", {
+    className: "font-semibold"
+  }, h.titulo), h.restrito ? React.createElement(Badge, null, "Restrito") : React.createElement(Badge, {
+    tone: h.tipo === 'seg_ocorrencia' ? 'aviso' : 'neutro'
+  }, HIST_TIPOS[h.tipo])), !h.restrito && h.descricao && React.createElement("p", {
+    className: "text-sm mt-1"
+  }, h.descricao))))));
+}
+function OcorrenciaModal({
+  row,
+  onClose,
+  onDone
+}) {
+  const toast = useToast();
+  const [f, setF] = useState({
+    tipo: '',
+    data: hojeISO(),
+    descricao: '',
+    cat: 'N',
+    recibo: '',
+    dias: '0'
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(x => ({
+    ...x,
+    [k]: v
+  }));
+  const pode = f.tipo && f.data && (f.cat === 'N' || f.recibo.trim()) && !busy;
+  const salvar = async () => {
+    setBusy(true);
+    try {
+      await rpc('registrar_ocorrencia', {
+        p_vinculo: row.vinculo_id,
+        p_tipo: f.tipo,
+        p_data: f.data,
+        p_descricao: nz(f.descricao.trim()),
+        p_cat: f.cat === 'S',
+        p_recibo: f.cat === 'S' ? f.recibo.trim() : null,
+        p_dias_perdidos: f.tipo === 'acidente' ? Number(f.dias || 0) : 0
+      });
+      toast('Ocorrência registrada.');
+      onDone();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return React.createElement(Modal, {
+    title: 'Registrar ocorrência · ' + row.nome,
+    onClose: onClose,
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: onClose
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "pri",
+      disabled: !pode,
+      onClick: salvar
+    }, "Registrar"))
+  }, React.createElement("div", {
+    className: "grid gap-3 text-sm"
+  }, React.createElement(Field, {
+    label: "Categoria da ocorrência *"
+  }, React.createElement(Select, {
+    value: f.tipo,
+    onChange: e => set('tipo', e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, "Selecione…"), Object.entries(SEG_TIPOS).map(([k, n]) => React.createElement("option", {
+    key: k,
+    value: k
+  }, n)))), React.createElement(Field, {
+    label: "Data da ocorrência *"
+  }, React.createElement(Input, {
+    type: "date",
+    max: hojeISO(),
+    value: f.data,
+    onChange: e => set('data', e.target.value)
+  })), React.createElement(Field, {
+    label: "Descrição"
+  }, React.createElement("textarea", {
+    className: "inp min-h-[90px]",
+    value: f.descricao,
+    onChange: e => set('descricao', e.target.value)
+  })), React.createElement(Field, {
+    label: "CAT? *"
+  }, React.createElement("div", {
+    className: "flex gap-5 h-9 items-center",
+    role: "radiogroup",
+    "aria-label": "CAT"
+  }, [['S', 'Sim'], ['N', 'Não']].map(([k, n]) => React.createElement("label", {
+    key: k,
+    className: "flex items-center gap-1.5"
+  }, React.createElement("input", {
+    type: "radio",
+    name: "cat_oc",
+    checked: f.cat === k,
+    onChange: () => set('cat', k)
+  }), " ", n)))), f.cat === 'S' && React.createElement(Field, {
+    label: "Número do recibo da CAT *"
+  }, React.createElement(Input, {
+    value: f.recibo,
+    onChange: e => set('recibo', e.target.value)
+  })), f.tipo === 'acidente' && React.createElement(Field, {
+    label: "Dias de afastamento",
+    hint: "0 se não houve afastamento. Entra no cálculo das taxas de frequência e gravidade."
+  }, React.createElement(Input, {
+    type: "number",
+    min: "0",
+    value: f.dias,
+    onChange: e => set('dias', e.target.value)
+  })), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "No Histórico do colaborador entra só um resumo (categoria e se houve CAT). A descrição e o recibo ficam apenas nesta aba.")));
+}
+function AtestadoModal({
+  row,
+  onClose,
+  onDone
+}) {
+  const toast = useToast();
+  const [f, setF] = useState({
+    data: hojeISO(),
+    dias: '1',
+    obs: ''
+  });
+  const [arq, setArq] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const escolher = e => {
+    const a = e.target.files && e.target.files[0];
+    if (!a) return;
+    if (!/\.(pdf|jpe?g|png)$/i.test(a.name)) {
+      toast('Envie o atestado em PDF, JPG ou PNG.', 'erro');
+      e.target.value = '';
+      return;
+    }
+    if (a.size > 10 * 1024 * 1024) {
+      toast('O arquivo passa de 10 MB.', 'erro');
+      e.target.value = '';
+      return;
+    }
+    setArq(a);
+  };
+  const salvar = async () => {
+    setBusy(true);
+    let path = null;
+    try {
+      if (arq) {
+        path = 'colaborador_' + row.vinculo_id + '/' + Date.now() + '_' + nomeArquivoSeguro(arq.name);
+        const {
+          error
+        } = await sb.storage.from('atestados').upload(path, arq, {
+          contentType: arq.type || 'application/octet-stream',
+          upsert: false
+        });
+        if (error) throw error;
+      }
+      try {
+        await rpc('registrar_atestado', {
+          p_vinculo: row.vinculo_id,
+          p_data_inicio: f.data,
+          p_dias: Number(f.dias || 0),
+          p_obs: nz(f.obs.trim()),
+          p_arquivo_path: path,
+          p_arquivo_nome: arq ? arq.name : null
+        });
+      } catch (e) {
+        if (path) {
+          try {
+            await sb.storage.from('atestados').remove([path]);
+          } catch (x) {}
+        }
+        throw e;
+      }
+      toast('Atestado registrado.');
+      onDone();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return React.createElement(Modal, {
+    title: 'Atestado · ' + row.nome,
+    onClose: onClose,
+    footer: React.createElement(React.Fragment, null, React.createElement(Btn, {
+      onClick: onClose
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "pri",
+      disabled: busy || !f.data || f.dias === '',
+      onClick: salvar
+    }, "Registrar atestado"))
+  }, React.createElement("div", {
+    className: "grid gap-3 text-sm"
+  }, React.createElement(Field, {
+    label: "Data do atestado *"
+  }, React.createElement(Input, {
+    type: "date",
+    value: f.data,
+    onChange: e => setF(x => ({
+      ...x,
+      data: e.target.value
+    }))
+  })), React.createElement(Field, {
+    label: "Dias de afastamento *",
+    hint: "Use 0 para declaração de comparecimento."
+  }, React.createElement(Input, {
+    type: "number",
+    min: "0",
+    value: f.dias,
+    onChange: e => setF(x => ({
+      ...x,
+      dias: e.target.value
+    }))
+  })), React.createElement(Field, {
+    label: "Observação"
+  }, React.createElement(Input, {
+    value: f.obs,
+    onChange: e => setF(x => ({
+      ...x,
+      obs: e.target.value
+    }))
+  })), React.createElement(Field, {
+    label: "Arquivo do atestado (PDF, JPG ou PNG, até 10 MB)"
+  }, React.createElement("input", {
+    type: "file",
+    accept: ".pdf,.jpg,.jpeg,.png,application/pdf,image/*",
+    "aria-label": "Arquivo do atestado",
+    onChange: escolher
+  }), arq && React.createElement("span", {
+    className: "block text-xs text-mute mt-1"
+  }, arq.name)), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "No Histórico do colaborador entra só um resumo (dias de afastamento). O arquivo fica guardado de forma privada e só é aberto por esta aba.")));
+}
+function SegTrabalhoTab({
+  row
+}) {
+  const toast = useToast();
+  const oc = useAsync(() => run(sb.from('seg_ocorrencia').select('*').eq('vinculo_id', row.vinculo_id).order('data_ocorrencia', {
+    ascending: false
+  })), [row.vinculo_id]);
+  const at = useAsync(() => run(sb.from('seg_atestado').select('*').eq('vinculo_id', row.vinculo_id).order('data_inicio', {
+    ascending: false
+  })), [row.vinculo_id]);
+  const tr = useAsync(() => run(sb.from('v_seg_treinamento_colab').select('*').eq('vinculo_id', row.vinculo_id).order('data_treinamento', {
+    ascending: false
+  })), [row.vinculo_id]);
+  const [modal, setModal] = useState(null);
+  const abrirArquivo = async a => {
+    try {
+      const {
+        data,
+        error
+      } = await sb.storage.from('atestados').createSignedUrl(a.arquivo_path, 60);
+      if (error) throw error;
+      window.open(data.signedUrl, '_blank', 'noopener');
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    }
+  };
+  const ocs = oc.data || [],
+    ats = at.data || [],
+    trs = tr.data || [];
+  const acidentes = ocs.filter(o => o.tipo === 'acidente');
+  const fechou = () => {
+    setModal(null);
+    oc.reload();
+    at.reload();
+    tr.reload();
+  };
+  return React.createElement("div", {
+    className: "space-y-5"
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, React.createElement(Btn, {
+    kind: "pri",
+    onClick: () => setModal('oc')
+  }, "Registrar ocorrência"), React.createElement(Btn, {
+    onClick: () => setModal('at')
+  }, "Atestado"), React.createElement("span", {
+    className: "text-xs text-mute ml-2"
+  }, fn0(ocs.length), " ocorrência(s) · ", fn0(acidentes.length), " acidente(s) · ", fn0(ats.length), " atestado(s) · ", fn0(trs.length), " treinamento(s)")), React.createElement("section", null, React.createElement("h3", {
+    className: "font-display text-base mb-2"
+  }, "Ocorrências"), oc.loading ? React.createElement(Spinner, null) : !ocs.length ? React.createElement(Vazio, null, "Nenhuma ocorrência registrada.") : React.createElement("div", {
+    className: "overflow-x-auto"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Data"), React.createElement("th", null, "Categoria"), React.createElement("th", null, "CAT"), React.createElement("th", null, "Recibo da CAT"), React.createElement("th", {
+    className: "text-right"
+  }, "Dias afastado"), React.createElement("th", null, "Descrição"))), React.createElement("tbody", null, ocs.map(o => React.createElement("tr", {
+    key: o.id
+  }, React.createElement("td", {
+    className: "tabular-nums"
+  }, fd(o.data_ocorrencia)), React.createElement("td", null, React.createElement(Badge, {
+    tone: segTom(o.tipo)
+  }, SEG_TIPOS[o.tipo])), React.createElement("td", null, o.cat ? 'Sim' : 'Não'), React.createElement("td", {
+    className: "tabular-nums"
+  }, o.cat_recibo || '—'), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, o.tipo === 'acidente' ? fn0(o.dias_perdidos) : '—'), React.createElement("td", {
+    className: "text-sm"
+  }, o.descricao || '—', React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "por ", o.criado_por_nome || '—')))))))), React.createElement("section", null, React.createElement("h3", {
+    className: "font-display text-base mb-2"
+  }, "Atestados"), at.loading ? React.createElement(Spinner, null) : !ats.length ? React.createElement(Vazio, null, "Nenhum atestado registrado.") : React.createElement("div", {
+    className: "overflow-x-auto"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Data"), React.createElement("th", {
+    className: "text-right"
+  }, "Dias"), React.createElement("th", null, "Observação"), React.createElement("th", null, "Arquivo"))), React.createElement("tbody", null, ats.map(a => React.createElement("tr", {
+    key: a.id
+  }, React.createElement("td", {
+    className: "tabular-nums"
+  }, fd(a.data_inicio)), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, a.dias === 0 ? 'Comparecimento' : fn0(a.dias)), React.createElement("td", {
+    className: "text-sm"
+  }, a.observacao || '—', React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "por ", a.criado_por_nome || '—')), React.createElement("td", null, a.arquivo_path ? React.createElement("button", {
+    className: "underline text-brand",
+    onClick: () => abrirArquivo(a)
+  }, a.arquivo_nome || 'Abrir arquivo') : '—'))))))), React.createElement("section", null, React.createElement("h3", {
+    className: "font-display text-base mb-2"
+  }, "Treinamentos e capacitações"), tr.loading ? React.createElement(Spinner, null) : !trs.length ? React.createElement(Vazio, null, "Nenhum treinamento registrado. Use “Registrar Treinamento” na tela de Colaboradores.") : React.createElement("div", {
+    className: "overflow-x-auto"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Data"), React.createElement("th", null, "Treinamento"), React.createElement("th", {
+    className: "text-right"
+  }, "Carga horária"))), React.createElement("tbody", null, trs.map(t => React.createElement("tr", {
+    key: t.treinamento_id
+  }, React.createElement("td", {
+    className: "tabular-nums"
+  }, fd(t.data_treinamento)), React.createElement("td", null, t.titulo), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h'))))))), modal === 'oc' && React.createElement(OcorrenciaModal, {
+    row: row,
+    onClose: () => setModal(null),
+    onDone: fechou
+  }), modal === 'at' && React.createElement(AtestadoModal, {
+    row: row,
+    onClose: () => setModal(null),
+    onDone: fechou
+  }));
+}
+function TreinamentoModal({
+  pessoas,
+  onClose,
+  onDone
+}) {
+  const {
+    deps
+  } = useLook();
+  const toast = useToast();
+  const [f, setF] = useState({
+    titulo: '',
+    data: hojeISO(),
+    carga: ''
+  });
+  const [busca, setBusca] = useState('');
+  const [dep, setDep] = useState('');
+  const [sel, setSel] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const ativos = useMemo(() => pessoas.filter(p => p.ativo).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')), [pessoas]);
+  const visiveis = ativos.filter(p => (!dep || String(p.departamento_id) === dep) && (!busca || norm(p.nome).includes(norm(busca)) || norm(p.matricula).includes(norm(busca))));
+  const alterna = id => setSel(s => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id);else n.add(id);
+    return n;
+  });
+  const marcaTodos = () => setSel(s => {
+    const n = new Set(s);
+    visiveis.forEach(p => n.add(p.vinculo_id));
+    return n;
+  });
+  const salvar = async () => {
+    setBusy(true);
+    try {
+      const r = await rpc('registrar_treinamento', {
+        p_titulo: f.titulo.trim(),
+        p_data: f.data,
+        p_carga: f.carga === '' ? null : Number(f.carga),
+        p_vinculos: [...sel]
+      });
+      toast('Treinamento registrado para ' + fn0(r.participantes) + ' colaborador(es).');
+      onDone();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return React.createElement(Modal, {
+    wide: true,
+    title: "Registrar treinamento",
+    onClose: onClose,
+    footer: React.createElement(React.Fragment, null, React.createElement("span", {
+      className: "mr-auto text-sm text-mute"
+    }, fn0(sel.size), " participante(s) selecionado(s)"), React.createElement(Btn, {
+      onClick: onClose
+    }, "Cancelar"), React.createElement(Btn, {
+      kind: "pri",
+      disabled: busy || !f.titulo.trim() || !f.data || !sel.size,
+      onClick: salvar
+    }, "Salvar treinamento"))
+  }, React.createElement("div", {
+    className: "grid gap-3 text-sm"
+  }, React.createElement("div", {
+    className: "grid md:grid-cols-3 gap-3"
+  }, React.createElement(Field, {
+    label: "Título do treinamento *",
+    className: "md:col-span-2"
+  }, React.createElement(Input, {
+    value: f.titulo,
+    onChange: e => setF(x => ({
+      ...x,
+      titulo: e.target.value
+    }))
+  })), React.createElement(Field, {
+    label: "Data *"
+  }, React.createElement(Input, {
+    type: "date",
+    value: f.data,
+    onChange: e => setF(x => ({
+      ...x,
+      data: e.target.value
+    }))
+  })), React.createElement(Field, {
+    label: "Carga horária (h)",
+    hint: "Opcional."
+  }, React.createElement(Input, {
+    type: "number",
+    min: "0",
+    step: "0.5",
+    value: f.carga,
+    onChange: e => setF(x => ({
+      ...x,
+      carga: e.target.value
+    }))
+  }))), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, React.createElement(Input, {
+    className: "w-64",
+    placeholder: "Buscar participante",
+    "aria-label": "Buscar participante",
+    value: busca,
+    onChange: e => setBusca(e.target.value)
+  }), React.createElement(Select, {
+    "aria-label": "Departamento dos participantes",
+    className: "w-56",
+    value: dep,
+    onChange: e => setDep(e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, "Todos os departamentos"), deps.filter(d => d.ativo).map(d => React.createElement("option", {
+    key: d.id,
+    value: d.id
+  }, d.nome))), React.createElement(Btn, {
+    onClick: marcaTodos,
+    disabled: !visiveis.length
+  }, "Marcar os ", fn0(visiveis.length), " da lista"), React.createElement(Btn, {
+    onClick: () => setSel(new Set()),
+    disabled: !sel.size
+  }, "Limpar seleção")), React.createElement("div", {
+    className: "max-h-72 overflow-y-auto rounded border border-line divide-y divide-line",
+    role: "group",
+    "aria-label": "Participantes"
+  }, visiveis.map(p => React.createElement("label", {
+    key: p.vinculo_id,
+    className: "flex items-center gap-2 px-3 py-1.5 hover:bg-canvas cursor-pointer"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: sel.has(p.vinculo_id),
+    onChange: () => alterna(p.vinculo_id)
+  }), React.createElement("span", {
+    className: "font-medium"
+  }, p.nome), React.createElement("span", {
+    className: "text-xs text-mute"
+  }, p.matricula, " · ", p.departamento))), !visiveis.length && React.createElement("div", {
+    className: "p-3 text-mute"
+  }, "Nenhum colaborador ativo neste filtro.")), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "Ao salvar, o treinamento entra no Histórico de cada participante.")));
+}
+const diasEntre = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
+const fTaxaSeg = v => v === null || v === undefined || !isFinite(v) ? '—' : v.toLocaleString('pt-BR', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+function PainelSeg() {
+  const {
+    deps,
+    params
+  } = useLook();
+  const horas = Number(params.seg_horas_mes_padrao || 220);
+  const [de, setDe] = useState(ymAtual(-11));
+  const [ate, setAte] = useState(ymAtual(0));
+  const [dep, setDep] = useState('');
+  const oc = useAsync(() => fetchAll(() => sb.from('v_seg_ocorrencia').select('*').order('id')), []);
+  const trs = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento').select('*').order('id')), []);
+  const part = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento_colab').select('*').order('treinamento_id')), []);
+  const col = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('vinculo_id, data_admissao, data_demissao, ativo, tipo_vinculo, departamento_id').order('vinculo_id')), []);
+  const meses = [];
+  for (let m = de; m <= ate; m = ymSoma(m, 1)) meses.push(m);
+  const colF = (col.data || []).filter(c => c.tipo_vinculo !== 'pj' && (!dep || String(c.departamento_id) === dep));
+  const hc = ym => {
+    const lim = ymSoma(ym, 1) + '-01';
+    return colF.filter(c => c.data_admissao < lim && (!c.data_demissao || c.data_demissao >= lim)).length;
+  };
+  const hht = ym => (hc(ymSoma(ym, -1)) + hc(ym)) / 2 * horas;
+  const ocF = (oc.data || []).filter(o => !dep || String(o.departamento_id) === dep);
+  const doMes = (rs, ym) => rs.filter(o => o.data_ocorrencia.slice(0, 7) === ym);
+  const comAfast = o => o.tipo === 'acidente' && o.dias_perdidos > 0;
+  const serie = meses.map(m => {
+    const r = doMes(ocF, m);
+    const h = hht(m);
+    return {
+      m,
+      h,
+      af: r.filter(comAfast).length,
+      dias: r.filter(o => o.tipo === 'acidente').reduce((t, o) => t + o.dias_perdidos, 0),
+      r
+    };
+  });
+  const H = serie.reduce((t, s) => t + s.h, 0),
+    AF = serie.reduce((t, s) => t + s.af, 0),
+    DP = serie.reduce((t, s) => t + s.dias, 0);
+  const TF = H ? AF * 1e6 / H : null,
+    TG = H ? DP * 1e6 / H : null;
+  const acid = ocF.filter(o => o.tipo === 'acidente').sort((a, b) => b.data_ocorrencia.localeCompare(a.data_ocorrencia));
+  const ultimo = acid[0] ? acid[0].data_ocorrencia : null;
+  const semAcid = ultimo ? Math.max(0, diasEntre(ultimo, hojeISO())) : null;
+  const partF = (part.data || []).filter(p => !dep || (col.data || []).some(c => c.vinculo_id === p.vinculo_id && String(c.departamento_id) === dep));
+  const trPer = (trs.data || []).filter(t => t.data_treinamento.slice(0, 7) >= de && t.data_treinamento.slice(0, 7) <= ate);
+  const idsPer = new Set(trPer.map(t => t.id));
+  const partPer = partF.filter(p => idsPer.has(p.treinamento_id));
+  const distintos = new Set(partPer.map(p => p.vinculo_id)).size;
+  const ativosN = colF.filter(c => c.ativo).length;
+  const horasTr = partPer.reduce((t, p) => t + Number(p.carga_horaria || 0), 0);
+  const KPI = ({
+    n,
+    v,
+    s
+  }) => React.createElement("div", {
+    className: "px-4 py-3"
+  }, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, n), React.createElement("div", {
+    className: "font-display text-xl tabular-nums"
+  }, v), s && React.createElement("div", {
+    className: "text-xs text-mute"
+  }, s));
+  if (oc.loading && !oc.data || col.loading && !col.data) return React.createElement(Spinner, null);
+  return React.createElement("div", null, React.createElement(PageHead, {
+    title: "Segurança do Trabalho",
+    sub: "Indicadores de acidentes, ocorrências e treinamentos"
+  }), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-x-4 gap-y-2 mb-4"
+  }, React.createElement("div", {
+    className: "flex items-center gap-2 text-sm"
+  }, React.createElement("span", {
+    className: "text-mute"
+  }, "De"), React.createElement(MesAnoPicker, {
+    className: "w-48",
+    valor: de,
+    rotulo: "Seg de",
+    limpavel: false,
+    max: ate,
+    onChange: m => m && setDe(m)
+  })), React.createElement("div", {
+    className: "flex items-center gap-2 text-sm"
+  }, React.createElement("span", {
+    className: "text-mute"
+  }, "Até"), React.createElement(MesAnoPicker, {
+    className: "w-48",
+    valor: ate,
+    rotulo: "Seg até",
+    limpavel: false,
+    min: de,
+    onChange: m => m && setAte(m)
+  })), React.createElement(Select, {
+    "aria-label": "Departamento",
+    className: "w-56",
+    value: dep,
+    onChange: e => setDep(e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, "Todos os departamentos"), deps.filter(d => d.ativo).map(d => React.createElement("option", {
+    key: d.id,
+    value: d.id
+  }, d.nome)))), React.createElement("div", {
+    className: "panel mb-4"
+  }, React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 divide-x divide-line"
+  }, React.createElement(KPI, {
+    n: "Taxa de frequência",
+    v: fTaxaSeg(TF),
+    s: fn0(AF) + ' acidente(s) com afastamento no período'
+  }), React.createElement(KPI, {
+    n: "Taxa de gravidade",
+    v: fTaxaSeg(TG),
+    s: fn0(DP) + ' dia(s) perdido(s) no período'
+  }), React.createElement(KPI, {
+    n: "Dias sem acidentes",
+    v: semAcid === null ? '—' : fn0(semAcid),
+    s: ultimo ? 'último acidente em ' + fd(ultimo) : 'nenhum acidente registrado'
+  }), React.createElement(KPI, {
+    n: "Treinamentos no período",
+    v: fn0(trPer.length),
+    s: fn0(partPer.length) + ' participações · ' + fn0(distintos) + ' pessoas (' + (ativosN ? Math.round(distintos / ativosN * 100) : 0) + '% dos ativos)' + (horasTr ? ' · ' + horasTr.toLocaleString('pt-BR', {
+      maximumFractionDigits: 1
+    }) + ' h' : '')
+  }))), React.createElement("div", {
+    className: "grid lg:grid-cols-2 gap-4 mb-4"
+  }, React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Ocorrências por mês"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Acidentes, incidentes e atos inseguros"), React.createElement(ChartCanvas, {
+    config: barCfg(meses.map(mesCurto), Object.entries(SEG_TIPOS).map(([k, n], i) => ({
+      label: n,
+      backgroundColor: [CORES.acento, '#E0A93B', CORES.areia][i],
+      data: serie.map(s => s.r.filter(o => o.tipo === k).length)
+    })), {
+      stacked: true
+    }),
+    height: 260
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Taxas de frequência e gravidade por mês"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Por 1.000.000 de horas-homem trabalhadas"), React.createElement(ChartCanvas, {
+    config: {
+      type: 'line',
+      data: {
+        labels: meses.map(mesCurto),
+        datasets: [{
+          label: 'Frequência',
+          data: serie.map(s => s.h ? Math.round(s.af * 1e8 / s.h) / 100 : null),
+          borderColor: CORES.acento,
+          backgroundColor: CORES.acento,
+          tension: 0.25,
+          yAxisID: 'y'
+        }, {
+          label: 'Gravidade',
+          data: serie.map(s => s.h ? Math.round(s.dias * 1e8 / s.h) / 100 : null),
+          borderColor: CORES.brand,
+          backgroundColor: CORES.brand,
+          tension: 0.25,
+          yAxisID: 'y1'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            position: 'left',
+            title: {
+              display: true,
+              text: 'Frequência'
+            }
+          },
+          y1: {
+            beginAtZero: true,
+            position: 'right',
+            grid: {
+              drawOnChartArea: false
+            },
+            title: {
+              display: true,
+              text: 'Gravidade'
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'bottom'
+          }
+        }
+      }
+    },
+    height: 260
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Treinamentos e capacitações"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Participações por mês"), React.createElement(ChartCanvas, {
+    config: barCfg(meses.map(mesCurto), [{
+      label: 'Participações',
+      backgroundColor: CORES.brand,
+      data: meses.map(m => partF.filter(p => {
+        const t = (trs.data || []).find(x => x.id === p.treinamento_id);
+        return t && t.data_treinamento.slice(0, 7) === m;
+      }).length)
+    }]),
+    height: 260
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-3"
+  }, "Treinamentos do período"), !trPer.length ? React.createElement(Vazio, null, "Nenhum treinamento no período.") : React.createElement("div", {
+    className: "overflow-x-auto max-h-64"
+  }, React.createElement("table", {
+    className: "tbl"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Data"), React.createElement("th", null, "Treinamento"), React.createElement("th", {
+    className: "text-right"
+  }, "Participantes"), React.createElement("th", {
+    className: "text-right"
+  }, "Carga"))), React.createElement("tbody", null, [...trPer].sort((a, b) => b.data_treinamento.localeCompare(a.data_treinamento)).slice(0, 30).map(t => React.createElement("tr", {
+    key: t.id
+  }, React.createElement("td", {
+    className: "tabular-nums"
+  }, fd(t.data_treinamento)), React.createElement("td", null, t.titulo), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, fn0(t.participantes)), React.createElement("td", {
+    className: "text-right tabular-nums"
+  }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h')))))))), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "Taxa de frequência = acidentes com afastamento × 1.000.000 ÷ HHT. Taxa de gravidade = dias perdidos × 1.000.000 ÷ HHT. Acidente com afastamento = acidente com dias de afastamento maiores que zero. HHT (horas-homem trabalhadas) estimada = média mensal de colaboradores (sem PJ) × ", fn0(horas), " h por mês (ajuste em Cadastros › Parâmetros). Dias sem acidentes conta desde o último acidente registrado."));
+}
 function Painel({
   perfil
 }) {
-  const [aba, setAba] = useState('pessoas');
-  if (perfil.papel !== 'admin') return React.createElement(PainelPessoas, {
+  const adm = perfil.papel === 'admin',
+    seg = perfil.papel === 'seg_trabalho';
+  const [aba, setAba] = useState(seg ? 'seg' : 'pessoas');
+  if (!adm && !seg) return React.createElement(PainelPessoas, {
     perfil: perfil
   });
+  const abas = adm ? [['pessoas', 'Pessoas'], ['custos', 'Custos de folha'], ['seg', 'Seg Trabalho']] : [['seg', 'Seg Trabalho']];
   return React.createElement("div", null, React.createElement("div", {
     className: "flex gap-1 mb-4 border-b border-line",
     role: "tablist",
     "aria-label": "Painel"
-  }, [['pessoas', 'Pessoas'], ['custos', 'Custos de folha']].map(([k, n]) => React.createElement("button", {
+  }, abas.map(([k, n]) => React.createElement("button", {
     key: k,
     role: "tab",
     "aria-selected": aba === k,
     onClick: () => setAba(k),
     className: 'px-4 py-2 text-sm border-b-2 -mb-px ' + (aba === k ? 'border-acento text-ink font-semibold' : 'border-transparent text-mute hover:text-ink')
-  }, n))), aba === 'pessoas' ? React.createElement(PainelPessoas, {
+  }, n))), aba === 'pessoas' && React.createElement(PainelPessoas, {
     perfil: perfil
-  }) : React.createElement(PainelCustos, {
+  }), aba === 'custos' && React.createElement(PainelCustos, {
     perfil: perfil
-  }));
+  }), aba === 'seg' && React.createElement(PainelSeg, null));
 }
 /* Processador do cartão de ponto (Secullum) — copiado sem alterações do Dashboard DP original */
 // Processador do cartão de ponto (Secullum) -> dados do Dashboard DP.
@@ -9029,9 +9823,10 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
-const APP_VERSAO = '2026-10-29 (migrações até a 016)';
+const APP_VERSAO = '2026-10-30 (migrações até a 017)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
+  seg_trabalho: [['painel', 'Painel'], ['colaboradores', 'Colaboradores']],
   admin: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['dashdp', 'Dashboard DP'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos'], ['importacao', 'Importar colaboradores'], ['cadastros', 'Cadastros'], ['auditoria', 'Auditoria']],
   dp: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['ferias', 'Férias'], ['experiencia', 'Experiência'], ['dashdp', 'Dashboard DP']],
   rs: [['painel', 'Painel'], ['colaboradores', 'Colaboradores'], ['vagas', 'Vagas'], ['kanban', 'Kanban'], ['candidatos', 'Banco de candidatos']],
