@@ -1013,6 +1013,7 @@ function Colaboradores({
     dep: '',
     tipo: '',
     gestor: '',
+    publico: '',
     alerta: false
   });
   const [page, setPage] = useState(0);
@@ -1027,7 +1028,7 @@ function Colaboradores({
   const rows = useMemo(() => {
     const t = norm(f.q),
       td = dig(f.q);
-    const lista = (q.data || []).filter(r => (f.status === 'todos' || f.status === 'ativos' === r.ativo) && (!f.dep || String(r.departamento_id) === f.dep) && (!f.tipo || r.tipo_vinculo === f.tipo) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.alerta || r.revisar.length > 0 || r.tem_observacao_negativa) && (!t || norm(r.nome).includes(t) || norm(r.matricula).includes(t) || td && (r.cpf.includes(td) || (r.cnpj || '').includes(td)) || norm(r.cargo).includes(t))).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    const lista = (q.data || []).filter(r => (f.status === 'todos' || f.status === 'ativos' === r.ativo) && (!f.dep || String(r.departamento_id) === f.dep) && (!f.tipo || r.tipo_vinculo === f.tipo) && (!f.publico || r.publico === f.publico) && (!f.gestor || String(r.gestor_id) === f.gestor) && (!f.alerta || r.revisar.length > 0 || r.tem_observacao_negativa) && (!t || norm(r.nome).includes(t) || norm(r.matricula).includes(t) || td && (r.cpf.includes(td) || (r.cnpj || '').includes(td)) || norm(r.cargo).includes(t))).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     return ord.aplica(lista, ORD_COLAB);
   }, [q.data, f, ord.o]);
   const set = (k, v) => {
@@ -1050,6 +1051,7 @@ function Colaboradores({
     CBO: r.cbo,
     Departamento: r.departamento,
     Setor: r.setor,
+    Publico: r.publico,
     Gestor: r.gestor,
     Admissao: fd(r.data_admissao),
     Demissao: fd(r.data_demissao),
@@ -1115,7 +1117,16 @@ function Colaboradores({
   }, "Tipo de vínculo"), Object.entries(L.tipo).map(([k, v]) => React.createElement("option", {
     key: k,
     value: k
-  }, v))), ve ? React.createElement(Select, {
+  }, v))), (q.data || []).some(r => r.publico) && React.createElement(Select, {
+    value: f.publico,
+    onChange: e => set('publico', e.target.value),
+    "aria-label": "Público"
+  }, React.createElement("option", {
+    value: ""
+  }, "Público"), Object.entries(PUBLICO_ROT).map(([k, n]) => React.createElement("option", {
+    key: k,
+    value: k
+  }, n))), ve ? React.createElement(Select, {
     value: f.gestor,
     onChange: e => set('gestor', e.target.value),
     "aria-label": "Gestor"
@@ -1669,7 +1680,8 @@ function DadosTab({
     cnpj: row.cnpj ? cnpjDigitando(row.cnpj) : '',
     departamento_id: String(row.departamento_id),
     setor: row.setor || '',
-    gestor_id: row.gestor_id ? String(row.gestor_id) : ''
+    gestor_id: row.gestor_id ? String(row.gestor_id) : '',
+    publico: row.publico || 'interno'
   });
   const [busy, setBusy] = useState(false);
   const salvar = async () => {
@@ -1690,7 +1702,10 @@ function DadosTab({
         adicional: v.adicional,
         departamento_id: Number(v.departamento_id),
         setor: nz(v.setor),
-        gestor_id: v.gestor_id ? Number(v.gestor_id) : null
+        gestor_id: v.gestor_id ? Number(v.gestor_id) : null,
+        ...(row.publico !== undefined ? {
+          publico: v.publico
+        } : {})
       }).eq('id', row.vinculo_id));
       toast('Dados atualizados.');
       onChanged();
@@ -1705,7 +1720,7 @@ function DadosTab({
   }, React.createElement(Dl, {
     itens: [['CPF', rh ? maskCpf(row.cpf) : '—'], ...(row.tipo_vinculo === 'pj' ? [['CNPJ', rh ? maskCnpj(row.cnpj) || 'Não informado' : '—']] : []), ['Nascimento', fd(row.data_nascimento) + (row.idade !== null ? ` (${row.idade} anos)` : '')], ['Cargo', row.cargo], ['CBO', row.cbo], ['Adicional', row.adicional]]
   }), React.createElement(Dl, {
-    itens: [['Departamento', row.departamento + (row.codigo_cc ? ' · CC ' + row.codigo_cc : '')], ['Setor', row.setor], ['Gestor', row.gestor], ['Admissão', fd(row.data_admissao)], ['Cód. Epr', rh ? row.cod_epr : null]]
+    itens: [['Departamento', row.departamento + (row.codigo_cc ? ' · CC ' + row.codigo_cc : '')], ['Setor', row.setor], ...(row.publico ? [['Público', PUBLICO_ROT[row.publico]]] : []), ['Gestor', row.gestor], ['Admissão', fd(row.data_admissao)], ['Cód. Epr', rh ? row.cod_epr : null]]
   })), rh && row.revisar.length > 0 && React.createElement("div", {
     className: "mt-4 rounded border border-amber/40 bg-amber/5 p-3 text-sm"
   }, React.createElement("b", null, "Pontos a revisar (carga histórica):"), React.createElement("ul", {
@@ -1802,7 +1817,20 @@ function DadosTab({
       ...v,
       setor: e.target.value
     })
-  })), React.createElement(Field, {
+  })), row.publico !== undefined && React.createElement(Field, {
+    label: "Público",
+    hint: "Interno trabalha na planta; externo, na rua. Usado nas taxas de frequência e gravidade."
+  }, React.createElement(Select, {
+    value: v.publico,
+    "aria-label": "Público",
+    onChange: e => setV({
+      ...v,
+      publico: e.target.value
+    })
+  }, Object.entries(PUBLICO_ROT).map(([k, n]) => React.createElement("option", {
+    key: k,
+    value: k
+  }, n)))), React.createElement(Field, {
     label: "Gestor direto"
   }, React.createElement(Select, {
     value: v.gestor_id,
@@ -2328,7 +2356,8 @@ function AdmissaoModal({
 }) {
   const {
     deps,
-    gestores
+    gestores,
+    params
   } = useLook();
   const toast = useToast();
   const [v, setV] = useState({
@@ -2347,6 +2376,7 @@ function AdmissaoModal({
     salario: '',
     salario_unidade: 'mensal',
     cnpj: '',
+    publico: '',
     exp: {
       formato: 'nenhum',
       p1: '',
@@ -2394,6 +2424,7 @@ function AdmissaoModal({
     };
   }, [cpfD]);
   const pj = v.tipo_vinculo === 'pj';
+  const publicoSug = publicoPadrao(deps.find(d => String(d.id) === String(v.departamento_id)), params);
   const prExp = prazosExp(v.exp);
   const cnpjInvalido = v.tipo_vinculo === 'pj' && dig(v.cnpj).length > 0 && !cnpjOk(v.cnpj);
   const ok = !cnpjInvalido && !(v.exp.formato === 'outro' && prExp.erro && !expSemContrato(v.tipo_vinculo)) && cpfD.length === 11 && aviso && aviso.valido && !aviso.vinculo_ativo && v.nome.trim() && (pj || v.data_nascimento) && v.matricula.trim() && v.cargo.trim() && v.departamento_id && v.data_admissao && (pj || v.salario) && (!pj || cnpjOk(v.cnpj) && v.setor.trim());
@@ -2408,6 +2439,7 @@ function AdmissaoModal({
       } = v;
       const dados = {
         ...resto,
+        publico: v.publico || publicoSug,
         cpf: cpfD,
         ...(salario !== '' ? {
           salario: Number(salario)
@@ -2543,6 +2575,16 @@ function AdmissaoModal({
     value: v.setor,
     onChange: e => set('setor', e.target.value)
   })), React.createElement(Field, {
+    label: "Público",
+    hint: "Padrão pelo departamento; interno = planta, externo = rua."
+  }, React.createElement(Select, {
+    value: v.publico || publicoSug,
+    "aria-label": "Público",
+    onChange: e => set('publico', e.target.value)
+  }, Object.entries(PUBLICO_ROT).map(([k, n]) => React.createElement("option", {
+    key: k,
+    value: k
+  }, n)))), React.createElement(Field, {
     label: "Gestor direto"
   }, React.createElement(Select, {
     value: v.gestor_id,
@@ -7924,14 +7966,25 @@ const ehSeg = p => p === 'seg_trabalho';
 const SEG_TIPOS = {
   acidente: 'Acidente',
   incidente: 'Incidente',
-  ato_inseguro: 'Ato inseguro'
+  comportamento_inseguro: 'Comportamento inseguro'
+};
+const SEG_NATUREZA = {
+  trabalho: 'Acidente de trabalho',
+  trajeto: 'Acidente de percurso (trajeto)'
 };
 const segTom = t => ({
   acidente: 'perigo',
   incidente: 'aviso',
-  ato_inseguro: 'neutro'
+  comportamento_inseguro: 'neutro'
 })[t] || 'neutro';
 const nomeArquivoSeguro = n => String(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-80);
+const DEPTOS_EXTERNOS_PADRAO = 'ASSISTENCIA TECNICA EXTERNA;COMERCIAL EXTERNO DE VENDAS;COMERCIAL PADEIROS;LOGISTICA EXTERNA';
+const normDep = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim().replace(/\s+/g, ' ');
+const publicoPadrao = (dep, params) => dep && String(params && params.seg_deptos_externos || DEPTOS_EXTERNOS_PADRAO).split(';').map(normDep).filter(Boolean).includes(normDep(dep.nome)) ? 'externo' : 'interno';
+const PUBLICO_ROT = {
+  interno: 'Interno (planta)',
+  externo: 'Externo (rua)'
+};
 function HistoricoSegTab({
   row
 }) {
@@ -7969,6 +8022,51 @@ function HistoricoSegTab({
     className: "text-sm mt-1"
   }, h.descricao))))));
 }
+function CampoCat({
+  cat,
+  recibo,
+  onCat,
+  onRecibo
+}) {
+  return React.createElement(React.Fragment, null, React.createElement(Field, {
+    label: "CAT? *"
+  }, React.createElement("div", {
+    className: "flex gap-5 h-9 items-center",
+    role: "radiogroup",
+    "aria-label": "CAT"
+  }, [['S', 'Sim'], ['N', 'Não']].map(([k, n]) => React.createElement("label", {
+    key: k,
+    className: "flex items-center gap-1.5"
+  }, React.createElement("input", {
+    type: "radio",
+    name: "cat_oc",
+    checked: cat === k,
+    onChange: () => onCat(k)
+  }), " ", n)))), cat === 'S' && React.createElement(Field, {
+    label: "Número do recibo da CAT *"
+  }, React.createElement(Input, {
+    value: recibo,
+    onChange: e => onRecibo(e.target.value)
+  })));
+}
+function CampoNatureza({
+  valor,
+  onChange
+}) {
+  return React.createElement(Field, {
+    label: "Natureza do acidente *",
+    hint: "Só acidente de trabalho entra nas taxas de frequência e gravidade."
+  }, React.createElement(Select, {
+    "aria-label": "Natureza do acidente",
+    value: valor,
+    onChange: e => onChange(e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, "Selecione…"), Object.entries(SEG_NATUREZA).map(([k, n]) => React.createElement("option", {
+    key: k,
+    value: k
+  }, n))));
+}
 function OcorrenciaModal({
   row,
   onClose,
@@ -7977,6 +8075,7 @@ function OcorrenciaModal({
   const toast = useToast();
   const [f, setF] = useState({
     tipo: '',
+    natureza: '',
     data: hojeISO(),
     descricao: '',
     cat: 'N',
@@ -7988,7 +8087,8 @@ function OcorrenciaModal({
     ...x,
     [k]: v
   }));
-  const pode = f.tipo && f.data && (f.cat === 'N' || f.recibo.trim()) && !busy;
+  const acid = f.tipo === 'acidente';
+  const pode = f.tipo && f.data && (!acid || f.natureza) && (f.cat === 'N' || f.recibo.trim()) && !busy;
   const salvar = async () => {
     setBusy(true);
     try {
@@ -7999,7 +8099,8 @@ function OcorrenciaModal({
         p_descricao: nz(f.descricao.trim()),
         p_cat: f.cat === 'S',
         p_recibo: f.cat === 'S' ? f.recibo.trim() : null,
-        p_dias_perdidos: f.tipo === 'acidente' ? Number(f.dias || 0) : 0
+        p_dias_afastamento: acid ? Number(f.dias || 0) : 0,
+        p_natureza: acid ? f.natureza : null
       });
       toast('Ocorrência registrada.');
       onDone();
@@ -8031,7 +8132,10 @@ function OcorrenciaModal({
   }, "Selecione…"), Object.entries(SEG_TIPOS).map(([k, n]) => React.createElement("option", {
     key: k,
     value: k
-  }, n)))), React.createElement(Field, {
+  }, n)))), acid && React.createElement(CampoNatureza, {
+    valor: f.natureza,
+    onChange: v => set('natureza', v)
+  }), React.createElement(Field, {
     label: "Data da ocorrência *"
   }, React.createElement(Input, {
     type: "date",
@@ -8044,28 +8148,14 @@ function OcorrenciaModal({
     className: "inp min-h-[90px]",
     value: f.descricao,
     onChange: e => set('descricao', e.target.value)
-  })), React.createElement(Field, {
-    label: "CAT? *"
-  }, React.createElement("div", {
-    className: "flex gap-5 h-9 items-center",
-    role: "radiogroup",
-    "aria-label": "CAT"
-  }, [['S', 'Sim'], ['N', 'Não']].map(([k, n]) => React.createElement("label", {
-    key: k,
-    className: "flex items-center gap-1.5"
-  }, React.createElement("input", {
-    type: "radio",
-    name: "cat_oc",
-    checked: f.cat === k,
-    onChange: () => set('cat', k)
-  }), " ", n)))), f.cat === 'S' && React.createElement(Field, {
-    label: "Número do recibo da CAT *"
-  }, React.createElement(Input, {
-    value: f.recibo,
-    onChange: e => set('recibo', e.target.value)
-  })), f.tipo === 'acidente' && React.createElement(Field, {
+  })), React.createElement(CampoCat, {
+    cat: f.cat,
+    recibo: f.recibo,
+    onCat: v => set('cat', v),
+    onRecibo: v => set('recibo', v)
+  }), acid && React.createElement(Field, {
     label: "Dias de afastamento",
-    hint: "0 se não houve afastamento. Entra no cálculo das taxas de frequência e gravidade."
+    hint: "Dias do atestado. Para as taxas, o dia da emissão do atestado não conta (dias perdidos = afastamento − 1)."
   }, React.createElement(Input, {
     type: "number",
     min: "0",
@@ -8084,10 +8174,21 @@ function AtestadoModal({
   const [f, setF] = useState({
     data: hojeISO(),
     dias: '1',
-    obs: ''
+    cid: '',
+    obs: '',
+    gerar: false,
+    natureza: '',
+    dataAc: '',
+    descAc: '',
+    cat: 'N',
+    recibo: ''
   });
   const [arq, setArq] = useState(null);
   const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(x => ({
+    ...x,
+    [k]: v
+  }));
   const escolher = e => {
     const a = e.target.files && e.target.files[0];
     if (!a) return;
@@ -8103,6 +8204,7 @@ function AtestadoModal({
     }
     setArq(a);
   };
+  const pode = !busy && f.data && f.dias !== '' && (!f.gerar || f.natureza && (f.cat === 'N' || f.recibo.trim()));
   const salvar = async () => {
     setBusy(true);
     let path = null;
@@ -8124,7 +8226,14 @@ function AtestadoModal({
           p_dias: Number(f.dias || 0),
           p_obs: nz(f.obs.trim()),
           p_arquivo_path: path,
-          p_arquivo_nome: arq ? arq.name : null
+          p_arquivo_nome: arq ? arq.name : null,
+          p_cid: nz(f.cid.trim()),
+          p_gerar_acidente: f.gerar,
+          p_natureza: f.gerar ? f.natureza : null,
+          p_cat: f.gerar && f.cat === 'S',
+          p_recibo: f.gerar && f.cat === 'S' ? f.recibo.trim() : null,
+          p_descricao_acidente: f.gerar ? nz(f.descAc.trim()) : null,
+          p_data_acidente: f.gerar && f.dataAc ? f.dataAc : null
         });
       } catch (e) {
         if (path) {
@@ -8134,7 +8243,7 @@ function AtestadoModal({
         }
         throw e;
       }
-      toast('Atestado registrado.');
+      toast(f.gerar ? 'Atestado e ocorrência de acidente registrados.' : 'Atestado registrado.');
       onDone();
     } catch (e) {
       toast(traduzErro(e), 'erro');
@@ -8149,39 +8258,39 @@ function AtestadoModal({
       onClick: onClose
     }, "Cancelar"), React.createElement(Btn, {
       kind: "pri",
-      disabled: busy || !f.data || f.dias === '',
+      disabled: !pode,
       onClick: salvar
     }, "Registrar atestado"))
   }, React.createElement("div", {
     className: "grid gap-3 text-sm"
+  }, React.createElement("div", {
+    className: "grid md:grid-cols-3 gap-3"
   }, React.createElement(Field, {
     label: "Data do atestado *"
   }, React.createElement(Input, {
     type: "date",
     value: f.data,
-    onChange: e => setF(x => ({
-      ...x,
-      data: e.target.value
-    }))
+    onChange: e => set('data', e.target.value)
   })), React.createElement(Field, {
     label: "Dias de afastamento *",
-    hint: "Use 0 para declaração de comparecimento."
+    hint: "0 = comparecimento."
   }, React.createElement(Input, {
     type: "number",
     min: "0",
     value: f.dias,
-    onChange: e => setF(x => ({
-      ...x,
-      dias: e.target.value
-    }))
+    onChange: e => set('dias', e.target.value)
   })), React.createElement(Field, {
+    label: "CID",
+    hint: "CID-10, ex.: S61.0."
+  }, React.createElement(Input, {
+    placeholder: "S61.0",
+    value: f.cid,
+    onChange: e => set('cid', e.target.value.toUpperCase())
+  }))), React.createElement(Field, {
     label: "Observação"
   }, React.createElement(Input, {
     value: f.obs,
-    onChange: e => setF(x => ({
-      ...x,
-      obs: e.target.value
-    }))
+    onChange: e => set('obs', e.target.value)
   })), React.createElement(Field, {
     label: "Arquivo do atestado (PDF, JPG ou PNG, até 10 MB)"
   }, React.createElement("input", {
@@ -8191,9 +8300,43 @@ function AtestadoModal({
     onChange: escolher
   }), arq && React.createElement("span", {
     className: "block text-xs text-mute mt-1"
-  }, arq.name)), React.createElement("p", {
+  }, arq.name)), React.createElement("label", {
+    className: "flex items-center gap-2 rounded border border-line bg-canvas px-3 py-2"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: f.gerar,
+    onChange: e => set('gerar', e.target.checked)
+  }), " ", React.createElement("b", null, "Gerar ocorrência de acidente"), " ", React.createElement("span", {
     className: "text-xs text-mute"
-  }, "No Histórico do colaborador entra só um resumo (dias de afastamento). O arquivo fica guardado de forma privada e só é aberto por esta aba.")));
+  }, "(o atestado decorre de um acidente)")), f.gerar && React.createElement("div", {
+    className: "grid gap-3 rounded border border-line p-3"
+  }, React.createElement(CampoNatureza, {
+    valor: f.natureza,
+    onChange: v => set('natureza', v)
+  }), React.createElement(Field, {
+    label: "Data do acidente",
+    hint: "Se vazio, vale a data do atestado."
+  }, React.createElement(Input, {
+    type: "date",
+    max: hojeISO(),
+    value: f.dataAc,
+    onChange: e => set('dataAc', e.target.value)
+  })), React.createElement(Field, {
+    label: "Descrição do acidente"
+  }, React.createElement("textarea", {
+    className: "inp min-h-[70px]",
+    value: f.descAc,
+    onChange: e => set('descAc', e.target.value)
+  })), React.createElement(CampoCat, {
+    cat: f.cat,
+    recibo: f.recibo,
+    onCat: v => set('cat', v),
+    onRecibo: v => set('recibo', v)
+  }), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "Dias perdidos para as taxas: ", fn0(Math.max(Number(f.dias || 0) - 1, 0)), " (afastamento menos o dia da emissão).")), React.createElement("p", {
+    className: "text-xs text-mute"
+  }, "No Histórico do colaborador entra só um resumo (dias de afastamento). O CID e o arquivo ficam apenas nesta aba; o arquivo é guardado de forma privada.")));
 }
 function SegTrabalhoTab({
   row
@@ -8250,19 +8393,25 @@ function SegTrabalhoTab({
     className: "tbl"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Data"), React.createElement("th", null, "Categoria"), React.createElement("th", null, "CAT"), React.createElement("th", null, "Recibo da CAT"), React.createElement("th", {
     className: "text-right"
-  }, "Dias afastado"), React.createElement("th", null, "Descrição"))), React.createElement("tbody", null, ocs.map(o => React.createElement("tr", {
+  }, "Afastamento"), React.createElement("th", null, "Descrição"))), React.createElement("tbody", null, ocs.map(o => React.createElement("tr", {
     key: o.id
   }, React.createElement("td", {
     className: "tabular-nums"
   }, fd(o.data_ocorrencia)), React.createElement("td", null, React.createElement(Badge, {
     tone: segTom(o.tipo)
-  }, SEG_TIPOS[o.tipo])), React.createElement("td", null, o.cat ? 'Sim' : 'Não'), React.createElement("td", {
+  }, SEG_TIPOS[o.tipo]), o.natureza && React.createElement("div", {
+    className: "text-xs text-mute mt-1"
+  }, o.natureza === 'trabalho' ? 'De trabalho' : 'De percurso (fora das taxas)')), React.createElement("td", null, o.cat ? 'Sim' : 'Não'), React.createElement("td", {
     className: "tabular-nums"
   }, o.cat_recibo || '—'), React.createElement("td", {
     className: "text-right tabular-nums"
-  }, o.tipo === 'acidente' ? fn0(o.dias_perdidos) : '—'), React.createElement("td", {
+  }, o.tipo === 'acidente' ? fn0(o.dias_afastamento) + ' d' : '—', o.tipo === 'acidente' && o.dias_afastamento > 0 && React.createElement("div", {
+    className: "text-xs text-mute"
+  }, fn0(o.dias_perdidos), " perdido(s)")), React.createElement("td", {
     className: "text-sm"
-  }, o.descricao || '—', React.createElement("div", {
+  }, o.descricao || '—', o.atestado_id && React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "gerada pelo atestado"), React.createElement("div", {
     className: "text-xs text-mute"
   }, "por ", o.criado_por_nome || '—')))))))), React.createElement("section", null, React.createElement("h3", {
     className: "font-display text-base mb-2"
@@ -8272,13 +8421,15 @@ function SegTrabalhoTab({
     className: "tbl"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Data"), React.createElement("th", {
     className: "text-right"
-  }, "Dias"), React.createElement("th", null, "Observação"), React.createElement("th", null, "Arquivo"))), React.createElement("tbody", null, ats.map(a => React.createElement("tr", {
+  }, "Dias"), React.createElement("th", null, "CID"), React.createElement("th", null, "Observação"), React.createElement("th", null, "Arquivo"))), React.createElement("tbody", null, ats.map(a => React.createElement("tr", {
     key: a.id
   }, React.createElement("td", {
     className: "tabular-nums"
   }, fd(a.data_inicio)), React.createElement("td", {
     className: "text-right tabular-nums"
   }, a.dias === 0 ? 'Comparecimento' : fn0(a.dias)), React.createElement("td", {
+    className: "tabular-nums"
+  }, a.cid || '—'), React.createElement("td", {
     className: "text-sm"
   }, a.observacao || '—', React.createElement("div", {
     className: "text-xs text-mute"
@@ -8459,41 +8610,55 @@ function PainelSeg() {
     params
   } = useLook();
   const horas = Number(params.seg_horas_mes_padrao || 220);
+  const tiposHHT = String(params.seg_tipos_hht || 'clt,aprendiz').split(',').map(x => x.trim()).filter(Boolean);
   const [de, setDe] = useState(ymAtual(-11));
   const [ate, setAte] = useState(ymAtual(0));
   const [dep, setDep] = useState('');
   const oc = useAsync(() => fetchAll(() => sb.from('v_seg_ocorrencia').select('*').order('id')), []);
   const trs = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento').select('*').order('id')), []);
   const part = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento_colab').select('*').order('treinamento_id')), []);
-  const col = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('vinculo_id, data_admissao, data_demissao, ativo, tipo_vinculo, departamento_id').order('vinculo_id')), []);
+  const col = useAsync(() => fetchAll(() => sb.from('v_colaborador').select('vinculo_id, data_admissao, data_demissao, ativo, tipo_vinculo, departamento_id, publico').order('vinculo_id')), []);
   const meses = [];
   for (let m = de; m <= ate; m = ymSoma(m, 1)) meses.push(m);
-  const colF = (col.data || []).filter(c => c.tipo_vinculo !== 'pj' && (!dep || String(c.departamento_id) === dep));
-  const hc = ym => {
+  const colF = (col.data || []).filter(c => tiposHHT.includes(c.tipo_vinculo) && (!dep || String(c.departamento_id) === dep));
+  const hc = (pub, ym) => {
     const lim = ymSoma(ym, 1) + '-01';
-    return colF.filter(c => c.data_admissao < lim && (!c.data_demissao || c.data_demissao >= lim)).length;
+    return colF.filter(c => c.publico === pub && c.data_admissao < lim && (!c.data_demissao || c.data_demissao >= lim)).length;
   };
-  const hht = ym => (hc(ymSoma(ym, -1)) + hc(ym)) / 2 * horas;
-  const ocF = (oc.data || []).filter(o => !dep || String(o.departamento_id) === dep);
+  const hht = (pub, ym) => (hc(pub, ymSoma(ym, -1)) + hc(pub, ym)) / 2 * horas;
+  const ocF = (oc.data || []).filter(o => tiposHHT.includes(o.tipo_vinculo) && (!dep || String(o.departamento_id) === dep));
+  const trabalho = o => o.tipo === 'acidente' && o.natureza === 'trabalho';
   const doMes = (rs, ym) => rs.filter(o => o.data_ocorrencia.slice(0, 7) === ym);
-  const comAfast = o => o.tipo === 'acidente' && o.dias_perdidos > 0;
-  const serie = meses.map(m => {
-    const r = doMes(ocF, m);
-    const h = hht(m);
+  const grupo = pub => {
+    const s = meses.map(m => {
+      const r = doMes(ocF, m).filter(o => trabalho(o) && o.publico === pub);
+      const h = hht(pub, m);
+      return {
+        m,
+        h,
+        af: r.filter(o => o.dias_perdidos > 0).length,
+        dias: r.reduce((t, o) => t + o.dias_perdidos, 0)
+      };
+    });
+    const H = s.reduce((t, x) => t + x.h, 0),
+      AF = s.reduce((t, x) => t + x.af, 0),
+      DP = s.reduce((t, x) => t + x.dias, 0);
     return {
-      m,
-      h,
-      af: r.filter(comAfast).length,
-      dias: r.filter(o => o.tipo === 'acidente').reduce((t, o) => t + o.dias_perdidos, 0),
-      r
+      s,
+      H,
+      AF,
+      DP,
+      TF: H ? AF * 1e6 / H : null,
+      TG: H ? DP * 1e6 / H : null
     };
-  });
-  const H = serie.reduce((t, s) => t + s.h, 0),
-    AF = serie.reduce((t, s) => t + s.af, 0),
-    DP = serie.reduce((t, s) => t + s.dias, 0);
-  const TF = H ? AF * 1e6 / H : null,
-    TG = H ? DP * 1e6 / H : null;
-  const acid = ocF.filter(o => o.tipo === 'acidente').sort((a, b) => b.data_ocorrencia.localeCompare(a.data_ocorrencia));
+  };
+  const G = {
+    interno: grupo('interno'),
+    externo: grupo('externo')
+  };
+  const todosPer = meses.flatMap(m => doMes(ocF, m));
+  const trajetoPer = todosPer.filter(o => o.tipo === 'acidente' && o.natureza === 'trajeto').length;
+  const acid = ocF.filter(trabalho).sort((a, b) => b.data_ocorrencia.localeCompare(a.data_ocorrencia));
   const ultimo = acid[0] ? acid[0].data_ocorrencia : null;
   const semAcid = ultimo ? Math.max(0, diasEntre(ultimo, hojeISO())) : null;
   const partF = (part.data || []).filter(p => !dep || (col.data || []).some(c => c.vinculo_id === p.vinculo_id && String(c.departamento_id) === dep));
@@ -8516,6 +8681,36 @@ function PainelSeg() {
   }, v), s && React.createElement("div", {
     className: "text-xs text-mute"
   }, s));
+  const Linha = ({
+    pub
+  }) => {
+    const g = G[pub];
+    return React.createElement("div", {
+      className: "panel mb-3"
+    }, React.createElement("div", {
+      className: "px-4 pt-3 text-sm font-medium"
+    }, "Público ", pub === 'interno' ? 'interno' : 'externo', " ", React.createElement("span", {
+      className: "text-xs text-mute font-normal"
+    }, pub === 'interno' ? 'trabalha na planta' : 'trabalha na rua (fora da planta)')), React.createElement("div", {
+      className: "grid grid-cols-2 md:grid-cols-4 divide-x divide-line"
+    }, React.createElement(KPI, {
+      n: "Taxa de frequência",
+      v: fTaxaSeg(g.TF),
+      s: fn0(g.AF) + ' acidente(s) com afastamento'
+    }), React.createElement(KPI, {
+      n: "Taxa de gravidade",
+      v: fTaxaSeg(g.TG),
+      s: fn0(g.DP) + ' dia(s) perdido(s)'
+    }), React.createElement(KPI, {
+      n: "HHT estimada",
+      v: fn0(Math.round(g.H)),
+      s: "horas-homem trabalhadas"
+    }), React.createElement(KPI, {
+      n: "Colaboradores hoje",
+      v: fn0(colF.filter(c => c.publico === pub && c.ativo).length),
+      s: tiposHHT.join(', ').toUpperCase()
+    })));
+  };
   if (oc.loading && !oc.data || col.loading && !col.data) return React.createElement(Spinner, null);
   return React.createElement("div", null, React.createElement(PageHead, {
     title: "Segurança do Trabalho",
@@ -8554,94 +8749,53 @@ function PainelSeg() {
   }, "Todos os departamentos"), deps.filter(d => d.ativo).map(d => React.createElement("option", {
     key: d.id,
     value: d.id
-  }, d.nome)))), React.createElement("div", {
+  }, d.nome)))), React.createElement(Linha, {
+    pub: "interno"
+  }), React.createElement(Linha, {
+    pub: "externo"
+  }), React.createElement("div", {
     className: "panel mb-4"
   }, React.createElement("div", {
-    className: "grid grid-cols-2 md:grid-cols-4 divide-x divide-line"
+    className: "grid grid-cols-2 divide-x divide-line"
   }, React.createElement(KPI, {
-    n: "Taxa de frequência",
-    v: fTaxaSeg(TF),
-    s: fn0(AF) + ' acidente(s) com afastamento no período'
-  }), React.createElement(KPI, {
-    n: "Taxa de gravidade",
-    v: fTaxaSeg(TG),
-    s: fn0(DP) + ' dia(s) perdido(s) no período'
-  }), React.createElement(KPI, {
     n: "Dias sem acidentes",
     v: semAcid === null ? '—' : fn0(semAcid),
-    s: ultimo ? 'último acidente em ' + fd(ultimo) : 'nenhum acidente registrado'
+    s: ultimo ? 'último acidente de trabalho em ' + fd(ultimo) : 'nenhum acidente de trabalho registrado'
   }), React.createElement(KPI, {
     n: "Treinamentos no período",
     v: fn0(trPer.length),
     s: fn0(partPer.length) + ' participações · ' + fn0(distintos) + ' pessoas (' + (ativosN ? Math.round(distintos / ativosN * 100) : 0) + '% dos ativos)' + (horasTr ? ' · ' + horasTr.toLocaleString('pt-BR', {
       maximumFractionDigits: 1
     }) + ' h' : '')
-  }))), React.createElement("div", {
+  }))), trajetoPer > 0 && React.createElement("p", {
+    className: "text-xs text-mute mb-4"
+  }, fn0(trajetoPer), " acidente(s) de percurso (trajeto) no período, fora das taxas de frequência e gravidade."), React.createElement("div", {
     className: "grid lg:grid-cols-2 gap-4 mb-4"
   }, React.createElement("div", {
     className: "panel p-4"
   }, React.createElement("h2", {
     className: "font-display text-base mb-1"
-  }, "Ocorrências por mês"), React.createElement("p", {
+  }, "Taxa de frequência por mês"), React.createElement("p", {
     className: "text-xs text-mute mb-2"
-  }, "Acidentes, incidentes e atos inseguros"), React.createElement(ChartCanvas, {
-    config: barCfg(meses.map(mesCurto), Object.entries(SEG_TIPOS).map(([k, n], i) => ({
-      label: n,
-      backgroundColor: [CORES.acento, '#E0A93B', CORES.areia][i],
-      data: serie.map(s => s.r.filter(o => o.tipo === k).length)
-    })), {
-      stacked: true
-    }),
-    height: 260
-  })), React.createElement("div", {
-    className: "panel p-4"
-  }, React.createElement("h2", {
-    className: "font-display text-base mb-1"
-  }, "Taxas de frequência e gravidade por mês"), React.createElement("p", {
-    className: "text-xs text-mute mb-2"
-  }, "Por 1.000.000 de horas-homem trabalhadas"), React.createElement(ChartCanvas, {
+  }, "Interno × externo · por 1.000.000 de horas-homem"), React.createElement(ChartCanvas, {
     config: {
       type: 'line',
       data: {
         labels: meses.map(mesCurto),
-        datasets: [{
-          label: 'Frequência',
-          data: serie.map(s => s.h ? Math.round(s.af * 1e8 / s.h) / 100 : null),
-          borderColor: CORES.acento,
-          backgroundColor: CORES.acento,
+        datasets: [['interno', CORES.brand], ['externo', CORES.acento]].map(([p, c]) => ({
+          label: 'Público ' + p,
+          borderColor: c,
+          backgroundColor: c,
           tension: 0.25,
-          yAxisID: 'y'
-        }, {
-          label: 'Gravidade',
-          data: serie.map(s => s.h ? Math.round(s.dias * 1e8 / s.h) / 100 : null),
-          borderColor: CORES.brand,
-          backgroundColor: CORES.brand,
-          tension: 0.25,
-          yAxisID: 'y1'
-        }]
+          data: G[p].s.map(s => s.h ? Math.round(s.af * 1e8 / s.h) / 100 : null)
+        }))
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
           y: {
-            beginAtZero: true,
-            position: 'left',
-            title: {
-              display: true,
-              text: 'Frequência'
-            }
-          },
-          y1: {
-            beginAtZero: true,
-            position: 'right',
-            grid: {
-              drawOnChartArea: false
-            },
-            title: {
-              display: true,
-              text: 'Gravidade'
-            }
+            beginAtZero: true
           }
         },
         plugins: {
@@ -8651,7 +8805,57 @@ function PainelSeg() {
         }
       }
     },
-    height: 260
+    height: 240
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Taxa de gravidade por mês"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Interno × externo · por 1.000.000 de horas-homem"), React.createElement(ChartCanvas, {
+    config: {
+      type: 'line',
+      data: {
+        labels: meses.map(mesCurto),
+        datasets: [['interno', CORES.brand], ['externo', CORES.acento]].map(([p, c]) => ({
+          label: 'Público ' + p,
+          borderColor: c,
+          backgroundColor: c,
+          tension: 0.25,
+          data: G[p].s.map(s => s.h ? Math.round(s.dias * 1e8 / s.h) / 100 : null)
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'bottom'
+          }
+        }
+      }
+    },
+    height: 240
+  })), React.createElement("div", {
+    className: "panel p-4"
+  }, React.createElement("h2", {
+    className: "font-display text-base mb-1"
+  }, "Ocorrências por mês"), React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, "Acidentes (de trabalho e de percurso), incidentes e comportamentos inseguros"), React.createElement(ChartCanvas, {
+    config: barCfg(meses.map(mesCurto), Object.entries(SEG_TIPOS).map(([k, n], i) => ({
+      label: n,
+      backgroundColor: [CORES.acento, '#E0A93B', CORES.areia][i],
+      data: meses.map(m => doMes(ocF, m).filter(o => o.tipo === k).length)
+    })), {
+      stacked: true
+    }),
+    height: 240
   })), React.createElement("div", {
     className: "panel p-4"
   }, React.createElement("h2", {
@@ -8667,9 +8871,9 @@ function PainelSeg() {
         return t && t.data_treinamento.slice(0, 7) === m;
       }).length)
     }]),
-    height: 260
-  })), React.createElement("div", {
-    className: "panel p-4"
+    height: 240
+  }))), React.createElement("div", {
+    className: "panel p-4 mb-4"
   }, React.createElement("h2", {
     className: "font-display text-base mb-3"
   }, "Treinamentos do período"), !trPer.length ? React.createElement(Vazio, null, "Nenhum treinamento no período.") : React.createElement("div", {
@@ -8688,9 +8892,9 @@ function PainelSeg() {
     className: "text-right tabular-nums"
   }, fn0(t.participantes)), React.createElement("td", {
     className: "text-right tabular-nums"
-  }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h')))))))), React.createElement("p", {
+  }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h'))))))), React.createElement("p", {
     className: "text-xs text-mute"
-  }, "Taxa de frequência = acidentes com afastamento × 1.000.000 ÷ HHT. Taxa de gravidade = dias perdidos × 1.000.000 ÷ HHT. Acidente com afastamento = acidente com dias de afastamento maiores que zero. HHT (horas-homem trabalhadas) estimada = média mensal de colaboradores (sem PJ) × ", fn0(horas), " h por mês (ajuste em Cadastros › Parâmetros). Dias sem acidentes conta desde o último acidente registrado."));
+  }, "Taxa de frequência = acidentes de trabalho com afastamento × 1.000.000 ÷ HHT. Taxa de gravidade = dias perdidos × 1.000.000 ÷ HHT. Só entram acidentes de trabalho (acidente de percurso/trajeto fica de fora) de colaboradores ", tiposHHT.join(' e ').toUpperCase(), "; PJ não entra. Dias perdidos = dias de afastamento do atestado menos o dia da emissão; acidente com afastamento é o que tem ao menos 1 dia perdido. HHT estimada = média mensal de colaboradores do público × ", fn0(horas), " h por mês (ajuste em Cadastros › Parâmetros). Público interno trabalha na planta; externo, na rua. Dias sem acidentes conta desde o último acidente de trabalho."));
 }
 function Painel({
   perfil
@@ -9823,7 +10027,7 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
-const APP_VERSAO = '2026-10-30 (migrações até a 017)';
+const APP_VERSAO = '2026-11-09 (migrações até a 018)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
   seg_trabalho: [['painel', 'Painel'], ['colaboradores', 'Colaboradores']],
@@ -9991,6 +10195,7 @@ function App() {
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(ToastHost, null, React.createElement(App, null)));
+
 
 </script>
 </body>
