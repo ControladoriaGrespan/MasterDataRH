@@ -1260,7 +1260,8 @@ function Detalhe({
     perfil: perfil,
     onChanged: onChanged
   }), aba === 'seg' && segAcesso && React.createElement(SegTrabalhoTab, {
-    row: row
+    row: row,
+    perfil: perfil
   }), aba === 'exp' && React.createElement(ExperienciaTab, {
     row: row,
     perfil: perfil,
@@ -8339,7 +8340,8 @@ function AtestadoModal({
   }, "No Histórico do colaborador entra só um resumo (dias de afastamento). O CID e o arquivo ficam apenas nesta aba; o arquivo é guardado de forma privada.")));
 }
 function SegTrabalhoTab({
-  row
+  row,
+  perfil
 }) {
   const toast = useToast();
   const oc = useAsync(() => run(sb.from('seg_ocorrencia').select('*').eq('vinculo_id', row.vinculo_id).order('data_ocorrencia', {
@@ -8352,6 +8354,7 @@ function SegTrabalhoTab({
     ascending: false
   })), [row.vinculo_id]);
   const [modal, setModal] = useState(null);
+  const [det, setDet] = useState(null);
   const abrirArquivo = async a => {
     try {
       const {
@@ -8438,19 +8441,33 @@ function SegTrabalhoTab({
     onClick: () => abrirArquivo(a)
   }, a.arquivo_nome || 'Abrir arquivo') : '—'))))))), React.createElement("section", null, React.createElement("h3", {
     className: "font-display text-base mb-2"
-  }, "Treinamentos e capacitações"), tr.loading ? React.createElement(Spinner, null) : !trs.length ? React.createElement(Vazio, null, "Nenhum treinamento registrado. Use “Registrar Treinamento” na tela de Colaboradores.") : React.createElement("div", {
+  }, "Treinamentos e capacitações"), tr.loading ? React.createElement(Spinner, null) : !trs.length ? React.createElement(Vazio, null, "Nenhum treinamento registrado. Use “Registrar Treinamento” na tela de Colaboradores.") : React.createElement(React.Fragment, null, React.createElement("div", {
     className: "overflow-x-auto"
   }, React.createElement("table", {
     className: "tbl"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Data"), React.createElement("th", null, "Treinamento"), React.createElement("th", {
     className: "text-right"
   }, "Carga horária"))), React.createElement("tbody", null, trs.map(t => React.createElement("tr", {
-    key: t.treinamento_id
+    key: t.treinamento_id,
+    className: "cursor-pointer hover:bg-canvas",
+    title: "Ver o treinamento e o certificado",
+    onClick: () => setDet(t)
   }, React.createElement("td", {
     className: "tabular-nums"
   }, fd(t.data_treinamento)), React.createElement("td", null, t.titulo), React.createElement("td", {
     className: "text-right tabular-nums"
-  }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h'))))))), modal === 'oc' && React.createElement(OcorrenciaModal, {
+  }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h')))))), React.createElement("p", {
+    className: "text-xs text-mute mt-1"
+  }, "Clique em um treinamento para ver os participantes e o certificado."))), det && React.createElement(TreinamentoDetalheModal, {
+    id: det.treinamento_id,
+    vinculoId: row.vinculo_id,
+    perfil: perfil,
+    onClose: () => setDet(null),
+    onChanged: () => {
+      setDet(null);
+      tr.reload();
+    }
+  }), modal === 'oc' && React.createElement(OcorrenciaModal, {
     row: row,
     onClose: () => setModal(null),
     onDone: fechou
@@ -8459,6 +8476,158 @@ function SegTrabalhoTab({
     onClose: () => setModal(null),
     onDone: fechou
   }));
+}
+const MESES_EXT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const dataExtenso = iso => Number(iso.slice(8, 10)) + ' de ' + MESES_EXT[Number(iso.slice(5, 7)) - 1] + ' de ' + iso.slice(0, 4);
+const escHtml = x => String(x === null || x === undefined ? '' : x).replace(/[&<>"]/g, c => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;'
+})[c]);
+function htmlCertificado(t, pessoas) {
+  const carga = t.carga_horaria === null || t.carga_horaria === undefined ? '' : ', com carga horária de ' + Number(t.carga_horaria).toLocaleString('pt-BR') + ' hora(s)';
+  const pag = p => '<section class="pg"><div class="moldura"><div class="marca">Grespan</div><h1>CERTIFICADO</h1><p>Certificamos que</p><p class="nome">' + escHtml(p.nome) + '</p><p>matrícula ' + escHtml(p.matricula) + ', participou do treinamento</p><p class="titulo">' + escHtml(t.titulo) + '</p><p>realizado em ' + dataExtenso(t.data_treinamento) + carga + '.</p><p class="local">Marília, ' + dataExtenso(hojeISO()) + '</p><div class="ass"><span></span>Responsável pelo treinamento</div></div></section>';
+  const css = '@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Georgia,"Times New Roman",serif;color:#2A1809;background:#fff}.pg{width:297mm;height:209mm;page-break-after:always;display:flex;align-items:center;justify-content:center}.moldura{width:270mm;height:182mm;border:3mm double #42270C;padding:14mm 20mm;text-align:center;display:flex;flex-direction:column;justify-content:center;gap:4mm}.marca{font-size:20pt;letter-spacing:4px;color:#DF3A26;font-weight:bold}h1{margin:0;font-size:38pt;letter-spacing:6px;color:#42270C}p{margin:0;font-size:15pt}.nome{font-size:26pt;font-weight:bold;border-bottom:1px solid #42270C;display:inline-block;padding:0 12mm 2mm;align-self:center}.titulo{font-size:20pt;font-weight:bold}.local{margin-top:6mm}.ass{margin-top:12mm;font-size:11pt;align-self:center;width:90mm}.ass span{display:block;border-top:1px solid #2A1809;margin-bottom:2mm}';
+  return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Certificado - ' + escHtml(t.titulo) + '</title><style>' + css + '</style></head><body>' + pessoas.map(pag).join('') + '</body></html>';
+}
+function imprimirCertificados(t, pessoas, avisar) {
+  const win = window.open('', '_blank');
+  if (!win) {
+    avisar('Libere os pop-ups do navegador para imprimir o certificado.', 'erro');
+    return;
+  }
+  win.document.open();
+  win.document.write(htmlCertificado(t, pessoas));
+  win.document.close();
+  setTimeout(() => {
+    try {
+      win.focus();
+      win.print();
+    } catch (e) {}
+  }, 400);
+}
+function TreinamentoDetalheModal({
+  id,
+  vinculoId,
+  perfil,
+  onClose,
+  onChanged
+}) {
+  const toast = useToast();
+  const q = useAsync(() => run(sb.from('v_seg_treinamento').select('*').eq('id', id).maybeSingle()), [id]);
+  const pq = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento_participante').select('*').eq('treinamento_id', id).order('nome')), [id]);
+  const [sel, setSel] = useState(null);
+  const [confirma, setConfirma] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const t = Array.isArray(q.data) ? q.data[0] : q.data;
+  const gente = (pq.data || []).slice().sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const atual = gente.find(p => p.vinculo_id === (sel !== null ? sel : vinculoId)) || gente[0];
+  const admin = !!perfil && perfil.papel === 'admin';
+  const excluir = async () => {
+    setBusy(true);
+    try {
+      const r = await rpc('excluir_treinamento', {
+        p_id: id
+      });
+      toast('Treinamento excluído (' + fn0(r.participantes) + ' participante(s) e o Histórico deles).');
+      onChanged();
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const rodape = confirma ? React.createElement(React.Fragment, null, React.createElement("span", {
+    className: "mr-auto text-sm text-danger"
+  }, "Excluir este treinamento de todos os ", fn0(gente.length), " participante(s)? Não dá para desfazer."), React.createElement(Btn, {
+    onClick: () => setConfirma(false)
+  }, "Cancelar"), React.createElement(Btn, {
+    kind: "danger",
+    disabled: busy,
+    onClick: excluir
+  }, "Confirmar exclusão")) : React.createElement(React.Fragment, null, admin && t && React.createElement(Btn, {
+    className: "mr-auto text-danger",
+    onClick: () => setConfirma(true)
+  }, "Excluir treinamento"), React.createElement(Btn, {
+    onClick: onClose
+  }, "Fechar"));
+  return React.createElement(Modal, {
+    wide: true,
+    title: t ? t.titulo : 'Treinamento',
+    onClose: onClose,
+    footer: rodape
+  }, (q.loading || pq.loading) && React.createElement(Spinner, null), q.error && React.createElement(Erro, {
+    e: q.error,
+    onRetry: q.reload
+  }), !q.loading && !t && React.createElement(Vazio, null, "Treinamento não encontrado."), t && React.createElement("div", {
+    className: "grid gap-4 text-sm"
+  }, React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 gap-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "Data"), React.createElement("div", {
+    className: "font-medium tabular-nums"
+  }, fd(t.data_treinamento))), React.createElement("div", null, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "Carga horária"), React.createElement("div", {
+    className: "font-medium tabular-nums"
+  }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h')), React.createElement("div", null, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "Participantes"), React.createElement("div", {
+    className: "font-medium tabular-nums"
+  }, fn0(gente.length))), React.createElement("div", null, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, "Lançado por"), React.createElement("div", {
+    className: "font-medium"
+  }, t.criado_por_nome || '—', React.createElement("span", {
+    className: "block text-xs text-mute font-normal"
+  }, t.criado_em ? 'em ' + fd(String(t.criado_em).slice(0, 10)) : '')))), React.createElement("div", null, React.createElement("div", {
+    className: "text-xs text-mute mb-1"
+  }, "Participantes"), React.createElement("div", {
+    className: "max-h-40 overflow-y-auto rounded border border-line divide-y divide-line",
+    role: "list",
+    "aria-label": "Participantes do treinamento"
+  }, gente.map(p => React.createElement("button", {
+    key: p.vinculo_id,
+    role: "listitem",
+    className: 'w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-canvas ' + (atual && atual.vinculo_id === p.vinculo_id ? 'bg-canvas' : ''),
+    onClick: () => setSel(p.vinculo_id)
+  }, React.createElement("span", {
+    className: "font-medium"
+  }, p.nome), React.createElement("span", {
+    className: "text-xs text-mute"
+  }, p.matricula, " · ", p.departamento))))), React.createElement("div", null, React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2 mb-2"
+  }, React.createElement("h3", {
+    className: "font-display text-base mr-2"
+  }, "Certificado"), React.createElement(Badge, {
+    tone: "aviso"
+  }, "Modelo provisório"), atual && React.createElement(Btn, {
+    kind: "pri",
+    onClick: () => imprimirCertificados(t, [atual], toast)
+  }, "Imprimir certificado de ", atual.nome.split(' ')[0]), gente.length > 1 && React.createElement(Btn, {
+    onClick: () => imprimirCertificados(t, gente, toast)
+  }, "Imprimir de todos (", fn0(gente.length), ")")), atual && React.createElement("div", {
+    className: "rounded border border-line bg-canvas overflow-hidden",
+    style: {
+      height: 320
+    }
+  }, React.createElement("iframe", {
+    title: "Pré-visualização do certificado",
+    sandbox: "",
+    srcDoc: htmlCertificado(t, [atual]),
+    style: {
+      width: 1123,
+      height: 794,
+      border: 0,
+      transform: 'scale(0.4)',
+      transformOrigin: 'top left',
+      background: '#fff'
+    }
+  })), React.createElement("p", {
+    className: "text-xs text-mute mt-2"
+  }, "O modelo oficial e a escolha das assinaturas serão configurados quando o modelo for enviado. Esta é uma versão provisória, com os dados do treinamento."))));
 }
 function TreinamentoModal({
   pessoas,
@@ -8478,6 +8647,9 @@ function TreinamentoModal({
   const [dep, setDep] = useState('');
   const [sel, setSel] = useState(new Set());
   const [busy, setBusy] = useState(false);
+  const [aceitaDup, setAceitaDup] = useState(false);
+  const ex = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento').select('*').order('id')), []);
+  const dup = (ex.data || []).filter(t => t.data_treinamento === f.data && norm(t.titulo) === norm(f.titulo.trim()) && f.titulo.trim());
   const ativos = useMemo(() => pessoas.filter(p => p.ativo).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')), [pessoas]);
   const visiveis = ativos.filter(p => (!dep || String(p.departamento_id) === dep) && (!busca || norm(p.nome).includes(norm(busca)) || norm(p.matricula).includes(norm(busca))));
   const alterna = id => setSel(s => {
@@ -8517,7 +8689,7 @@ function TreinamentoModal({
       onClick: onClose
     }, "Cancelar"), React.createElement(Btn, {
       kind: "pri",
-      disabled: busy || !f.titulo.trim() || !f.data || !sel.size,
+      disabled: busy || !f.titulo.trim() || !f.data || !sel.size || dup.length > 0 && !aceitaDup,
       onClick: salvar
     }, "Salvar treinamento"))
   }, React.createElement("div", {
@@ -8554,7 +8726,15 @@ function TreinamentoModal({
       ...x,
       carga: e.target.value
     }))
-  }))), React.createElement("div", {
+  }))), dup.length > 0 && React.createElement("div", {
+    className: "rounded border border-acento/50 bg-acento/5 p-3"
+  }, React.createElement("b", null, "Atenção: já existe um treinamento com este título nesta data"), " (", dup.map(d => fn0(d.participantes) + ' participante(s)').join('; '), "). Pode ser lançamento em duplicidade.", React.createElement("label", {
+    className: "flex gap-2 mt-2"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: aceitaDup,
+    onChange: e => setAceitaDup(e.target.checked)
+  }), " Registrar mesmo assim")), React.createElement("div", {
     className: "flex flex-wrap items-center gap-2"
   }, React.createElement(Input, {
     className: "w-64",
@@ -8604,7 +8784,9 @@ const fTaxaSeg = v => v === null || v === undefined || !isFinite(v) ? '—' : v.
   minimumFractionDigits: 2,
   maximumFractionDigits: 2
 });
-function PainelSeg() {
+function PainelSeg({
+  perfil
+}) {
   const {
     deps,
     params
@@ -8614,6 +8796,7 @@ function PainelSeg() {
   const [de, setDe] = useState(ymAtual(-11));
   const [ate, setAte] = useState(ymAtual(0));
   const [dep, setDep] = useState('');
+  const [det, setDet] = useState(null);
   const oc = useAsync(() => fetchAll(() => sb.from('v_seg_ocorrencia').select('*').order('id')), []);
   const trs = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento').select('*').order('id')), []);
   const part = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento_colab').select('*').order('treinamento_id')), []);
@@ -8885,7 +9068,10 @@ function PainelSeg() {
   }, "Participantes"), React.createElement("th", {
     className: "text-right"
   }, "Carga"))), React.createElement("tbody", null, [...trPer].sort((a, b) => b.data_treinamento.localeCompare(a.data_treinamento)).slice(0, 30).map(t => React.createElement("tr", {
-    key: t.id
+    key: t.id,
+    className: "cursor-pointer hover:bg-canvas",
+    title: "Ver o treinamento e o certificado",
+    onClick: () => setDet(t)
   }, React.createElement("td", {
     className: "tabular-nums"
   }, fd(t.data_treinamento)), React.createElement("td", null, t.titulo), React.createElement("td", {
@@ -8894,7 +9080,16 @@ function PainelSeg() {
     className: "text-right tabular-nums"
   }, t.carga_horaria === null ? '—' : Number(t.carga_horaria).toLocaleString('pt-BR') + ' h'))))))), React.createElement("p", {
     className: "text-xs text-mute"
-  }, "Taxa de frequência = acidentes de trabalho com afastamento × 1.000.000 ÷ HHT. Taxa de gravidade = dias perdidos × 1.000.000 ÷ HHT. Só entram acidentes de trabalho (acidente de percurso/trajeto fica de fora) de colaboradores ", tiposHHT.join(' e ').toUpperCase(), "; PJ não entra. Dias perdidos = dias de afastamento do atestado menos o dia da emissão; acidente com afastamento é o que tem ao menos 1 dia perdido. HHT estimada = média mensal de colaboradores do público × ", fn0(horas), " h por mês (ajuste em Cadastros › Parâmetros). Público interno trabalha na planta; externo, na rua. Dias sem acidentes conta desde o último acidente de trabalho."));
+  }, "Taxa de frequência = acidentes de trabalho com afastamento × 1.000.000 ÷ HHT. Taxa de gravidade = dias perdidos × 1.000.000 ÷ HHT. Só entram acidentes de trabalho (acidente de percurso/trajeto fica de fora) de colaboradores ", tiposHHT.join(' e ').toUpperCase(), "; PJ não entra. Dias perdidos = dias de afastamento do atestado menos o dia da emissão; acidente com afastamento é o que tem ao menos 1 dia perdido. HHT estimada = média mensal de colaboradores do público × ", fn0(horas), " h por mês (ajuste em Cadastros › Parâmetros). Público interno trabalha na planta; externo, na rua. Dias sem acidentes conta desde o último acidente de trabalho."), det && React.createElement(TreinamentoDetalheModal, {
+    id: det.id,
+    perfil: perfil,
+    onClose: () => setDet(null),
+    onChanged: () => {
+      setDet(null);
+      trs.reload();
+      part.reload();
+    }
+  }));
 }
 function Painel({
   perfil
@@ -8920,7 +9115,9 @@ function Painel({
     perfil: perfil
   }), aba === 'custos' && React.createElement(PainelCustos, {
     perfil: perfil
-  }), aba === 'seg' && React.createElement(PainelSeg, null));
+  }), aba === 'seg' && React.createElement(PainelSeg, {
+    perfil: perfil
+  }));
 }
 /* Processador do cartão de ponto (Secullum) — copiado sem alterações do Dashboard DP original */
 // Processador do cartão de ponto (Secullum) -> dados do Dashboard DP.
@@ -10027,7 +10224,7 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
-const APP_VERSAO = '2026-11-09 (migrações até a 018)';
+const APP_VERSAO = '2026-11-10 (migrações até a 019)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
   seg_trabalho: [['painel', 'Painel'], ['colaboradores', 'Colaboradores']],
