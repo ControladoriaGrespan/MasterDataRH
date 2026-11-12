@@ -9344,6 +9344,379 @@ function TreinamentoModal({
     onClose: () => setCat(false)
   }));
 }
+const CID_CAPITULOS = [['A00', 'B99', 'Doenças infecciosas e parasitárias'], ['C00', 'D48', 'Neoplasias'], ['D50', 'D89', 'Doenças do sangue e dos órgãos hematopoéticos'], ['E00', 'E99', 'Doenças endócrinas, nutricionais e metabólicas'], ['F00', 'F99', 'Transtornos mentais e comportamentais'], ['G00', 'G99', 'Doenças do sistema nervoso'], ['H00', 'H59', 'Doenças do olho e anexos'], ['H60', 'H95', 'Doenças do ouvido'], ['I00', 'I99', 'Doenças do aparelho circulatório'], ['J00', 'J99', 'Doenças do aparelho respiratório'], ['K00', 'K93', 'Doenças do aparelho digestivo'], ['L00', 'L99', 'Doenças da pele e do tecido subcutâneo'], ['M00', 'M99', 'Doenças osteomusculares e do tecido conjuntivo'], ['N00', 'N99', 'Doenças do aparelho geniturinário'], ['O00', 'O99', 'Gravidez, parto e puerpério'], ['P00', 'P96', 'Afecções do período perinatal'], ['Q00', 'Q99', 'Malformações congênitas'], ['R00', 'R99', 'Sintomas, sinais e achados anormais'], ['S00', 'T98', 'Lesões, envenenamentos e causas externas'], ['U00', 'U99', 'Códigos para propósitos especiais'], ['V01', 'Y98', 'Causas externas de morbidade e mortalidade'], ['Z00', 'Z99', 'Fatores que influenciam o estado de saúde']];
+const CID_NOMES = {
+  A08: 'Infecções intestinais virais',
+  A09: 'Diarreia e gastroenterite de origem infecciosa presumível',
+  A90: 'Dengue',
+  B02: 'Herpes zoster',
+  B34: 'Doença por vírus de localização não especificada',
+  C10: 'Neoplasia maligna da orofaringe',
+  F31: 'Transtorno afetivo bipolar',
+  F32: 'Episódios depressivos',
+  F41: 'Outros transtornos ansiosos',
+  G43: 'Enxaqueca',
+  G56: 'Mononeuropatias dos membros superiores',
+  H10: 'Conjuntivite',
+  I10: 'Hipertensão essencial (primária)',
+  J00: 'Nasofaringite aguda (resfriado comum)',
+  J01: 'Sinusite aguda',
+  J03: 'Amigdalite aguda',
+  J06: 'Infecções agudas das vias aéreas superiores',
+  J11: 'Influenza (gripe)',
+  J18: 'Pneumonia',
+  J20: 'Bronquite aguda',
+  J22: 'Infecção aguda das vias aéreas inferiores',
+  K02: 'Cárie dentária',
+  K21: 'Doença do refluxo gastroesofágico',
+  K29: 'Gastrite e duodenite',
+  K40: 'Hérnia inguinal',
+  M22: 'Transtornos da patela',
+  M23: 'Transtornos internos dos joelhos',
+  M25: 'Outros transtornos articulares',
+  M51: 'Outros transtornos de discos intervertebrais',
+  M54: 'Dorsalgia',
+  M62: 'Outros transtornos musculares',
+  M65: 'Sinovite e tenossinovite',
+  M70: 'Transtornos dos tecidos moles por uso excessivo',
+  M75: 'Lesões do ombro',
+  M77: 'Outras entesopatias',
+  M79: 'Outros transtornos dos tecidos moles',
+  N20: 'Calculose do rim e do ureter',
+  N39: 'Outros transtornos do trato urinário',
+  R10: 'Dor abdominal e pélvica',
+  R11: 'Náusea e vômitos',
+  R51: 'Cefaleia',
+  S43: 'Luxação, entorse e distensão da cintura escapular',
+  S60: 'Traumatismo superficial do punho e da mão',
+  S61: 'Ferimento do punho e da mão',
+  S70: 'Traumatismo superficial do quadril e da coxa',
+  S80: 'Traumatismo superficial da perna',
+  S82: 'Fratura da perna, incluindo tornozelo',
+  S83: 'Luxação, entorse e distensão do joelho',
+  S91: 'Ferimento do tornozelo e do pé',
+  S92: 'Fratura do pé',
+  S93: 'Luxação, entorse e distensão do tornozelo e do pé',
+  T14: 'Traumatismo de região não especificada',
+  U07: 'COVID-19',
+  Z00: 'Exame geral sem queixas',
+  Z30: 'Supervisão de anticoncepção',
+  Z34: 'Supervisão de gravidez normal',
+  Z35: 'Supervisão de gravidez de alto risco',
+  Z76: 'Contato com serviços de saúde em outras circunstâncias',
+  Z98: 'Outros estados pós-cirúrgicos'
+};
+const capituloCid = c => {
+  const k = String(c || '').slice(0, 3);
+  const x = CID_CAPITULOS.find(([a, b]) => k >= a && k <= b);
+  return x ? x[2] : 'Outros';
+};
+const rotuloCid = c => {
+  const n = CID_NOMES[String(c).slice(0, 3)];
+  return n ? c + ' · ' + (n.length > 44 ? n.slice(0, 43) + '…' : n) : c;
+};
+const isoBR = s => s.slice(6, 10) + '-' + s.slice(3, 5) + '-' + s.slice(0, 2);
+function extraiCids(motivo) {
+  const t = String(motivo || '').toUpperCase();
+  const k = t.match(/CID\s*[:.\-]*\s*(?:CID\s*)?(?:10\b\s*[:.\-]*\s*)?/);
+  if (!k) {
+    const s = t.match(/^\s*([A-Z])\s?(\d{2,3})\s*$/);
+    return s ? [s[1] + s[2].slice(0, 2) + (s[2].length > 2 ? '.' + s[2].slice(2) : '')] : [];
+  }
+  let rest = t.slice(k.index + k[0].length);
+  const out = [];
+  const re = /^([A-Z])\s?(\d{2})(?:\s?\.?\s?(\d{1,2}))?(?![A-Z0-9])/;
+  for (;;) {
+    rest = rest.replace(/^\s+/, '');
+    const m = rest.match(re);
+    if (!m) break;
+    out.push(m[1] + m[2] + (m[3] ? '.' + m[3] : ''));
+    rest = rest.slice(m[0].length).replace(/^\s*(?:[,;+\/&]|E\b)\s*/, '');
+  }
+  return out;
+}
+function lerAfastamentosSecullum(XL, buf) {
+  const wb = XL.read(new Uint8Array(buf), {
+    type: 'array'
+  });
+  const linhas = XL.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+    header: 1,
+    raw: true,
+    defval: null
+  });
+  const cab = linhas.slice(0, 8).flat().filter(x => typeof x === 'string');
+  if (!cab.some(x => /HIST[ÓO]RICO DE AFASTAMENTOS/i.test(x))) throw new Error('Este arquivo não parece ser o relatório “Histórico de afastamentos” do Secullum.');
+  let periodo = null;
+  cab.forEach(x => {
+    const m = x.match(/Per[ií]odo:\s*(\d{2}\/\d{2}\/\d{4})\s*at[ée]\s*(\d{2}\/\d{2}\/\d{4})/i);
+    if (m) periodo = {
+      ini: isoBR(m[1]),
+      fim: isoBR(m[2])
+    };
+  });
+  if (!periodo) throw new Error('Não encontrei o período do relatório (linha “Período: dd/mm/aaaa até dd/mm/aaaa”).');
+  const rows = [],
+    ignorados = {};
+  let nome = null,
+    folha = null;
+  linhas.forEach((r, i) => {
+    if (r[2] && r[16] && !r[0]) {
+      nome = String(r[2]).trim();
+      folha = String(r[16]).trim();
+      return;
+    }
+    const a = typeof r[0] === 'string' ? r[0].trim() : '';
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(a) || !nome) return;
+    const just = String(r[4] || '').trim(),
+      motivo = String(r[8] || '').trim(),
+      fim = typeof r[3] === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(r[3].trim()) ? r[3].trim() : a;
+    const tipo = just === 'AT. MED' ? 'atestado' : just === 'INSS' ? 'inss' : null;
+    if (!tipo) {
+      ignorados[just || '(sem justificativa)'] = (ignorados[just || '(sem justificativa)'] || 0) + 1;
+      return;
+    }
+    const c = extraiCids(motivo);
+    rows.push({
+      linha: i + 1,
+      folha,
+      nome,
+      tipo,
+      inicio: isoBR(a),
+      fim: isoBR(fim),
+      cid: c[0] || null,
+      cid_outros: c.slice(1).join(', ') || null,
+      motivo
+    });
+  });
+  return {
+    periodo,
+    rows,
+    ignorados,
+    colaboradores: new Set(rows.map(r => r.folha)).size
+  };
+}
+function ImportarAfastamentosModal({
+  onClose,
+  onDone
+}) {
+  const toast = useToast();
+  const [arq, setArq] = useState(null);
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const escolher = async file => {
+    if (!file) return;
+    setBusy(true);
+    setRes(null);
+    try {
+      const p = lerAfastamentosSecullum(XLSX, await file.arrayBuffer());
+      if (!p.rows.length) throw new Error('O arquivo não tem atestados (AT. MED) nem afastamentos INSS.');
+      setArq({
+        nome: file.name,
+        ...p
+      });
+    } catch (e) {
+      setArq(null);
+      toast(e.message || traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const enviar = async () => {
+    setBusy(true);
+    try {
+      const r = await rpc('importar_afastamentos_secullum', {
+        p_arquivo: arq.nome,
+        p_periodo_ini: arq.periodo.ini,
+        p_periodo_fim: arq.periodo.fim,
+        p_rows: arq.rows
+      });
+      setRes(r);
+      setArq(null);
+    } catch (e) {
+      toast(traduzErro(e), 'erro');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const n = t => arq.rows.filter(r => r.tipo === t).length;
+  return React.createElement(Modal, {
+    wide: true,
+    title: "Importar afastamentos (Secullum)",
+    onClose: res ? onDone : onClose,
+    footer: res ? React.createElement(Btn, {
+      kind: "pri",
+      onClick: onDone
+    }, "Concluir") : React.createElement(Btn, {
+      onClick: onClose
+    }, "Fechar")
+  }, React.createElement("div", {
+    className: "grid gap-4 text-sm"
+  }, React.createElement("p", {
+    className: "text-mute"
+  }, "Use o relatório ", React.createElement("b", null, "Histórico de afastamentos"), " do Secullum, em Excel. Entram os atestados (AT. MED) e os afastamentos INSS; férias, folgas, abonos e demais justificativas são ignorados. O CID é lido do texto do motivo. Ao enviar, o que já veio do Secullum ", React.createElement("b", null, "dentro do período do relatório"), " é substituído pelo arquivo, então pode subir de novo sem duplicar."), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-3"
+  }, React.createElement("label", {
+    className: "btn btn-sec cursor-pointer"
+  }, "1. Selecionar arquivo", React.createElement("input", {
+    type: "file",
+    accept: ".xlsx,.xls",
+    className: "sr-only",
+    disabled: busy,
+    onChange: e => {
+      escolher(e.target.files[0]);
+      e.target.value = '';
+    }
+  })), busy && React.createElement(Spinner, {
+    text: "Processando…"
+  })), arq && React.createElement("div", {
+    className: "rounded border border-line bg-canvas p-3",
+    role: "status"
+  }, React.createElement("p", null, React.createElement("b", null, arq.nome), " · período ", fd(arq.periodo.ini), " a ", fd(arq.periodo.fim), " · ", fn0(arq.colaboradores), " colaborador(es)"), React.createElement("p", {
+    className: "mt-1"
+  }, fn0(n('atestado')), " atestado(s) · ", fn0(n('inss')), " afastamento(s) INSS · ", React.createElement("b", null, fn0(arq.rows.filter(r => r.cid).length)), " com CID identificado e ", React.createElement("b", null, fn0(arq.rows.filter(r => !r.cid).length)), " sem CID no texto"), React.createElement("p", {
+    className: "text-xs text-mute mt-1"
+  }, "Ignorados: ", Object.entries(arq.ignorados).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' (' + v + ')').join(', ') || 'nenhum'), React.createElement("div", {
+    className: "mt-3 flex gap-2"
+  }, React.createElement(Btn, {
+    kind: "pri",
+    disabled: busy,
+    onClick: enviar
+  }, "2. Enviar"), React.createElement(Btn, {
+    disabled: busy,
+    onClick: () => setArq(null)
+  }, "Remover arquivo"))), res && React.createElement("div", {
+    className: "rounded border border-line p-3",
+    role: "status"
+  }, React.createElement("p", null, React.createElement("b", null, fn0(res.inseridos)), " lançamento(s) importado(s) de ", fn0(res.total), " · ", fn0(res.removidos), " do mesmo período substituído(s) · ", fn0(res.sem_cid), " sem CID", res.duplicados_manual ? ' · ' + fn0(res.duplicados_manual) + ' já lançado(s) à mão (mantidos)' : '', "."), res.sem_vinculo.length > 0 && React.createElement("div", {
+    className: "mt-2"
+  }, React.createElement("p", {
+    className: "text-danger"
+  }, React.createElement("b", null, fn0(res.sem_vinculo.length)), " linha(s) sem vínculo com um colaborador do sistema (não importadas):"), React.createElement("ul", {
+    className: "list-disc pl-5 max-h-40 overflow-y-auto"
+  }, res.sem_vinculo.slice(0, 60).map((s, i) => React.createElement("li", {
+    key: i
+  }, "folha ", s.folha, " · ", s.nome, ": ", s.motivo))), React.createElement("div", {
+    className: "mt-2"
+  }, React.createElement(Btn, {
+    onClick: () => baixar(res.sem_vinculo.map(s => ({
+      Folha: s.folha,
+      Nome: s.nome,
+      Motivo: s.motivo
+    })), 'afastamentos_sem_vinculo_' + hojeISO(), 'xlsx')
+  }, "Baixar lista"))))));
+}
+function AtestadosCID({
+  de,
+  ate,
+  dep,
+  chave
+}) {
+  const q = useAsync(() => fetchAll(() => sb.from('v_seg_atestado_cid').select('*').order('id')), [chave]);
+  const [visao, setVisao] = useState('dias');
+  const [grupo, setGrupo] = useState('cid');
+  const [inss, setInss] = useState(false);
+  const ini = de + '-01',
+    fimD = new Date(Number(ate.slice(0, 4)), Number(ate.slice(5, 7)), 0),
+    fim = fimD.getFullYear() + '-' + String(fimD.getMonth() + 1).padStart(2, '0') + '-' + String(fimD.getDate()).padStart(2, '0');
+  const dia = s => new Date(s + 'T12:00:00').getTime();
+  const base = (q.data || []).filter(r => (inss || r.tipo === 'atestado') && (!dep || String(r.departamento_id) === dep)).map(r => {
+    const a = r.data_inicio > ini ? r.data_inicio : ini,
+      b = (r.data_fim || r.data_inicio) < fim ? r.data_fim || r.data_inicio : fim;
+    return {
+      ...r,
+      ov: b >= a ? Math.round((dia(b) - dia(a)) / 86400000) + 1 : 0
+    };
+  }).filter(r => r.ov > 0);
+  const chaveDe = r => grupo === 'capitulo' ? r.cid ? capituloCid(r.cid) : 'Sem CID informado' : r.cid ? grupo === 'categoria' ? r.cid.slice(0, 3) : r.cid : 'Sem CID informado';
+  const m = new Map();
+  base.forEach(r => {
+    const k = chaveDe(r);
+    const o = m.get(k) || {
+      k,
+      dias: 0,
+      pessoas: new Set(),
+      n: 0
+    };
+    o.dias += r.ov;
+    o.pessoas.add(r.vinculo_id);
+    o.n += 1;
+    m.set(k, o);
+  });
+  const lista = [...m.values()].map(o => ({
+    ...o,
+    p: o.pessoas.size
+  })).sort((a, b) => (visao === 'dias' ? b.dias - a.dias : b.p - a.p) || b.n - a.n).slice(0, grupo === 'capitulo' ? 25 : 15);
+  const pessoasTot = new Set(base.map(r => r.vinculo_id)).size,
+    diasTot = base.reduce((t, r) => t + r.ov, 0),
+    comCid = base.filter(r => r.cid).length;
+  const rot = k => grupo === 'capitulo' || k === 'Sem CID informado' ? k : grupo === 'categoria' ? rotuloCid(k) : rotuloCid(k);
+  const KPI = ({
+    n,
+    v
+  }) => React.createElement("div", {
+    className: "px-4 py-3"
+  }, React.createElement("div", {
+    className: "text-xs text-mute"
+  }, n), React.createElement("div", {
+    className: "font-display text-xl tabular-nums"
+  }, v));
+  return React.createElement("div", {
+    className: "panel mb-4"
+  }, React.createElement("div", {
+    className: "p-4 border-b border-line flex flex-wrap items-center gap-3"
+  }, React.createElement("h2", {
+    className: "font-display text-base mr-auto"
+  }, "Atestados por CID"), React.createElement(Select, {
+    "aria-label": "Agrupar CID",
+    className: "w-44",
+    value: grupo,
+    onChange: e => setGrupo(e.target.value)
+  }, React.createElement("option", {
+    value: "cid"
+  }, "Por CID"), React.createElement("option", {
+    value: "categoria"
+  }, "Por categoria (3 caracteres)"), React.createElement("option", {
+    value: "capitulo"
+  }, "Por capítulo")), React.createElement(Alterna, {
+    valor: visao,
+    onChange: setVisao,
+    opcoes: [['dias', 'Dias'], ['pessoas', 'Pessoas']],
+    rotulo: "Atestados por CID"
+  }), React.createElement("label", {
+    className: "flex items-center gap-1.5 text-xs"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: inss,
+    onChange: e => setInss(e.target.checked)
+  }), " Incluir afastamentos INSS")), q.loading ? React.createElement(Spinner, null) : !(q.data || []).length ? React.createElement(Vazio, null, "Nenhum atestado importado ainda. Use “Importar afastamentos”.") : React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 divide-x divide-line border-b border-line"
+  }, React.createElement(KPI, {
+    n: "Atestados no período",
+    v: fn0(base.length)
+  }), React.createElement(KPI, {
+    n: "Colaboradores",
+    v: fn0(pessoasTot)
+  }), React.createElement(KPI, {
+    n: "Dias de afastamento",
+    v: fn0(diasTot)
+  }), React.createElement(KPI, {
+    n: "Com CID identificado",
+    v: base.length ? Math.round(comCid / base.length * 100) + '%' : '—'
+  })), React.createElement("div", {
+    className: "p-4"
+  }, React.createElement("p", {
+    className: "text-xs text-mute mb-2"
+  }, visao === 'dias' ? 'Dias de afastamento dentro do período' : 'Colaboradores com ao menos 1 atestado no período', " · por ", grupo === 'cid' ? 'CID' : grupo === 'categoria' ? 'categoria do CID' : 'capítulo do CID', ". CID lido do texto do Secullum; o primeiro CID de cada atestado é o considerado."), !lista.length ? React.createElement(Vazio, null, "Nenhum atestado neste período.") : React.createElement(ChartCanvas, {
+    config: barCfg(lista.map(o => rot(o.k)), [{
+      label: visao === 'dias' ? 'Dias' : 'Colaboradores',
+      backgroundColor: CORES.brand,
+      data: lista.map(o => visao === 'dias' ? o.dias : o.p)
+    }], {
+      horizontal: true
+    }),
+    height: Math.max(240, lista.length * 26)
+  }))));
+}
 const diasEntre = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
 const fTaxaSeg = v => v === null || v === undefined || !isFinite(v) ? '—' : v.toLocaleString('pt-BR', {
   minimumFractionDigits: 2,
@@ -9363,6 +9736,8 @@ function PainelSeg({
   const [dep, setDep] = useState('');
   const [det, setDet] = useState(null);
   const [cat, setCat] = useState(null);
+  const [impAf, setImpAf] = useState(false);
+  const [recargaAf, setRecargaAf] = useState(0);
   const oc = useAsync(() => fetchAll(() => sb.from('v_seg_ocorrencia').select('*').order('id')), []);
   const trs = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento').select('*').order('id')), []);
   const part = useAsync(() => fetchAll(() => sb.from('v_seg_treinamento_colab').select('*').order('treinamento_id')), []);
@@ -9466,6 +9841,8 @@ function PainelSeg({
     title: "Segurança do Trabalho",
     sub: "Indicadores de acidentes, ocorrências e treinamentos"
   }, React.createElement(Btn, {
+    onClick: () => setImpAf(true)
+  }, "Importar afastamentos"), React.createElement(Btn, {
     onClick: () => setCat('assinantes')
   }, "Técnicos e responsáveis")), agend.length > 0 && React.createElement("div", {
     className: "panel mb-4"
@@ -9649,7 +10026,12 @@ function PainelSeg({
       }).length)
     }]),
     height: 240
-  }))), React.createElement("div", {
+  }))), React.createElement(AtestadosCID, {
+    de: de,
+    ate: ate,
+    dep: dep,
+    chave: recargaAf
+  }), React.createElement("div", {
     className: "panel p-4 mb-4"
   }, React.createElement("h2", {
     className: "font-display text-base mb-3"
@@ -9685,6 +10067,12 @@ function PainelSeg({
     }
   }), cat === 'assinantes' && React.createElement(AssinantesModal, {
     onClose: () => setCat(null)
+  }), impAf && React.createElement(ImportarAfastamentosModal, {
+    onClose: () => setImpAf(false),
+    onDone: () => {
+      setImpAf(false);
+      setRecargaAf(x => x + 1);
+    }
   }));
 }
 function Painel({
@@ -10406,6 +10794,24 @@ const ORD_PONTO = {
   afast: p => p.afastados,
   he: p => p.extra
 };
+function Alterna({
+  valor,
+  onChange,
+  opcoes,
+  rotulo
+}) {
+  return React.createElement("div", {
+    className: "inline-flex rounded border border-line overflow-hidden text-xs",
+    role: "group",
+    "aria-label": 'Visão: ' + rotulo
+  }, opcoes.map(([k, n]) => React.createElement("button", {
+    type: "button",
+    key: k,
+    "aria-pressed": valor === k,
+    className: 'px-2.5 py-1 ' + (valor === k ? 'bg-brand text-white' : 'bg-white hover:bg-canvas'),
+    onClick: () => onChange(k)
+  }, n)));
+}
 function DashboardDP({
   perfil
 }) {
@@ -10421,6 +10827,11 @@ function DashboardDP({
   const [conc, setConc] = useState(false);
   const [pessoa, setPessoa] = useState(null);
   const [page, setPage] = useState(0);
+  const [modoAus, setModoAus] = useState('dias');
+  const [modoAf, setModoAf] = useState('dias');
+  const [modoHe, setModoHe] = useState('horas');
+  const [impAf, setImpAf] = useState(false);
+  const [recargaAf, setRecargaAf] = useState(0);
   const ord = useOrdem({
     k: 'nome',
     dir: 1
@@ -10521,7 +10932,9 @@ function DashboardDP({
   }, podeImportar && React.createElement(Btn, {
     kind: "pri",
     onClick: () => setImp(true)
-  }, "Importar ponto")), React.createElement("div", {
+  }, "Importar ponto"), perfil.papel === 'admin' && React.createElement(Btn, {
+    onClick: () => setImpAf(true)
+  }, "Importar afastamentos")), React.createElement("div", {
     className: "flex flex-wrap items-center gap-x-4 gap-y-2 mb-4"
   }, React.createElement("div", {
     className: "flex items-center gap-2 text-sm"
@@ -10673,32 +11086,46 @@ function DashboardDP({
     height: 240
   })), React.createElement("div", {
     className: "panel p-4"
-  }, React.createElement("h2", {
-    className: "font-display text-base mb-1"
-  }, "Composição das ausências"), React.createElement("p", {
+  }, React.createElement("div", {
+  className: "flex items-center justify-between gap-2 mb-1"
+}, React.createElement("h2", {
+  className: "font-display text-base"
+}, "Composição das ausências"), React.createElement(Alterna, {
+  valor: modoAus,
+  onChange: setModoAus,
+  opcoes: [['dias', 'Dias'], ['pessoas', 'Pessoas']],
+  rotulo: "Composição das ausências"
+})), React.createElement("p", {
     className: "text-xs text-mute mb-2"
-  }, "Dias por motivo (atestados até o 15º dia) · só quem bate ponto"), React.createElement(ChartCanvas, {
+  }, modoAus === 'dias' ? "Dias por motivo (atestados até o 15º dia) · só quem bate ponto" : "Colaboradores com ao menos 1 dia no motivo (a mesma pessoa pode aparecer em mais de um motivo) · só quem bate ponto"), React.createElement(ChartCanvas, {
     config: barCfg(meses.map(mesCurto), [['Faltas', 'f', CORES.acento], ['Atestados/declarações', 'a', '#E0A93B'], ['Suspensões', 's', CORES.brand], ['Sem marcação', 'x', CORES.areia]].map(([l, k, c]) => ({
       label: l,
       backgroundColor: c,
-      data: meses.map(m => soma(selAbs.filter(r => r.mes.slice(0, 7) === m), k))
+      data: meses.map(m => modoAus === 'dias' ? soma(selAbs.filter(r => r.mes.slice(0, 7) === m), k) : selAbs.filter(r => r.mes.slice(0, 7) === m && Number(r[k]) > 0).length)
     })), {
-      stacked: true
+      stacked: modoAus === 'dias'
     }),
     height: 240
   })), React.createElement("div", {
     className: "panel p-4"
-  }, React.createElement("h2", {
-    className: "font-display text-base mb-1"
-  }, "Dias afastados"), React.createElement("p", {
+  }, React.createElement("div", {
+  className: "flex items-center justify-between gap-2 mb-1"
+}, React.createElement("h2", {
+  className: "font-display text-base"
+}, "Dias afastados"), React.createElement(Alterna, {
+  valor: modoAf,
+  onChange: setModoAf,
+  opcoes: [['dias', 'Dias'], ['pessoas', 'Pessoas']],
+  rotulo: "Dias afastados"
+})), React.createElement("p", {
     className: "text-xs text-mute mb-2"
-  }, "Atestados, INSS e licenças"), React.createElement(ChartCanvas, {
+  }, modoAf === 'dias' ? "Atestados, INSS e licenças" : "Colaboradores com ao menos 1 dia no tipo de afastamento (a mesma pessoa pode aparecer em mais de um tipo)"), React.createElement(ChartCanvas, {
     config: barCfg(meses.map(mesCurto), [['Atestado (até o 15º dia)', 'a', '#E0A93B'], ['Atestado após o 15º dia', 'p', CORES.acento], ['INSS', 'i', CORES.brand], ['Licenças', 'l', CORES.areia]].map(([l, k, c]) => ({
       label: l,
       backgroundColor: c,
-      data: porMes(rs => soma(rs, k))
+      data: porMes(rs => modoAf === 'dias' ? soma(rs, k) : rs.filter(r => Number(r[k]) > 0).length)
     })), {
-      stacked: true
+      stacked: modoAf === 'dias'
     }),
     height: 240
   })), React.createElement("div", {
@@ -10716,15 +11143,22 @@ function DashboardDP({
     height: 240
   })), React.createElement("div", {
     className: "panel p-4"
-  }, React.createElement("h2", {
-    className: "font-display text-base mb-1"
-  }, "Horas extras por mês"), React.createElement("p", {
+  }, React.createElement("div", {
+  className: "flex items-center justify-between gap-2 mb-1"
+}, React.createElement("h2", {
+  className: "font-display text-base"
+}, "Horas extras por mês"), React.createElement(Alterna, {
+  valor: modoHe,
+  onChange: setModoHe,
+  opcoes: [['horas', 'Horas'], ['pessoas', 'Pessoas']],
+  rotulo: "Horas extras por mês"
+})), React.createElement("p", {
     className: "text-xs text-mute mb-2"
-  }, "Horas além da jornada do dia (tolerância de 10 min/dia). Não separa hora paga de banco de horas."), React.createElement(ChartCanvas, {
+  }, modoHe === 'horas' ? "Horas além da jornada do dia (tolerância de 10 min/dia). Não separa hora paga de banco de horas." : "Colaboradores com ao menos 1 hora extra no mês (tolerância de 10 min/dia)"), React.createElement(ChartCanvas, {
     config: barCfg(meses.map(mesCurto), [{
-      label: 'Horas extras',
+      label: modoHe === 'horas' ? 'Horas extras' : 'Colaboradores com hora extra',
       backgroundColor: CORES.brand,
-      data: porMes(rs => Math.round(soma(rs, 'extra') / 6) / 10)
+      data: porMes(rs => modoHe === 'horas' ? Math.round(soma(rs, 'extra') / 6) / 10 : rs.filter(r => Number(r.extra) > 0).length)
     }]),
     height: 240
   })), React.createElement("div", {
@@ -10742,7 +11176,12 @@ function DashboardDP({
       horizontal: true
     }),
     height: Math.max(240, heDep.length * 24)
-  }))), React.createElement("div", {
+  }))), perfil.papel === 'admin' && React.createElement(AtestadosCID, {
+    de: de,
+    ate: ate,
+    dep: dep,
+    chave: recargaAf
+  }), React.createElement("div", {
     className: "panel mb-4"
   }, React.createElement("div", {
     className: "p-4 border-b border-line flex flex-wrap items-center gap-3"
@@ -10805,7 +11244,13 @@ function DashboardDP({
     onPage: setPage
   })), React.createElement("p", {
     className: "text-xs text-mute mb-6"
-  }, "Absenteísmo = (faltas + atestados/declarações até o 15º dia + suspensões + dias de escala sem marcação) ÷ dias previstos de trabalho; só entram quem bate ponto. Vendas, funções PJ, sócios e Senai não batem ponto e ficam fora dos números de ponto, mas contam nos indicadores de pessoas.")), imp && React.createElement(ImportarPontoModal, {
+  }, "Absenteísmo = (faltas + atestados/declarações até o 15º dia + suspensões + dias de escala sem marcação) ÷ dias previstos de trabalho; só entram quem bate ponto. Vendas, funções PJ, sócios e Senai não batem ponto e ficam fora dos números de ponto, mas contam nos indicadores de pessoas.")), impAf && React.createElement(ImportarAfastamentosModal, {
+    onClose: () => setImpAf(false),
+    onDone: () => {
+      setImpAf(false);
+      setRecargaAf(x => x + 1);
+    }
+  }), imp && React.createElement(ImportarPontoModal, {
     onClose: () => setImp(false),
     onDone: () => {
       setImp(false);
@@ -10820,7 +11265,7 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
-const APP_VERSAO = '2026-11-13 (migrações até a 020)';
+const APP_VERSAO = '2026-11-15 (migrações até a 021)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
   seg_trabalho: [['painel', 'Painel'], ['colaboradores', 'Colaboradores']],
