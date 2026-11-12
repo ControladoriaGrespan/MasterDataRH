@@ -3496,25 +3496,27 @@ function FeriasLote() {
   const [arq, setArq] = useState(null);
   const modelo = async () => {
     try {
-      const d = await fetchAll(() => sb.from('v_ferias_periodo_saldo').select('matricula,nome,inicio,fim,faltas_injustificadas,completo,implantado').eq('completo', true).eq('implantado', false).order('nome').order('inicio'));
+      const d = await rpc('modelo_saldo_anterior');
       const linhas = d.length ? d.map(p => ({
         matricula: p.matricula,
         nome: p.nome,
-        periodo_inicio: p.inicio,
-        periodo_fim: p.fim,
-        faltas: p.faltas_injustificadas,
-        dias_gozados: '',
-        dias_abono: ''
+        periodo_inicio: p.periodo_inicio,
+        periodo_fim: p.periodo_fim,
+        concessivo_ate: p.concessivo_fim,
+        faltas: p.faltas,
+        dias_gozados: p.dias_gozados === null ? '' : p.dias_gozados,
+        dias_abono: p.dias_abono === null ? '' : p.dias_abono
       })) : [{
         matricula: '9001',
-        nome: 'EXEMPLO (todos os períodos já implantados)',
-        periodo_inicio: '2025-02-08',
-        periodo_fim: '2026-02-07',
+        nome: 'EXEMPLO (nenhum colaborador com período a implantar)',
+        periodo_inicio: '2025-05-13',
+        periodo_fim: '2026-05-12',
+        concessivo_ate: '2027-05-12',
         faltas: 0,
-        dias_gozados: 30,
+        dias_gozados: 15,
         dias_abono: 0
       }];
-      baixar(linhas, 'modelo_implantacao_ferias', 'xlsx');
+      baixar(linhas, 'modelo_saldo_anterior', 'xlsx');
     } catch (e) {
       toast(traduzErro(e), 'erro');
     }
@@ -3572,7 +3574,7 @@ function FeriasLote() {
     className: "font-display text-lg mb-1"
   }, "Saldo anterior ao início do controle (opcional)"), React.createElement("p", {
     className: "text-sm text-mute mb-4"
-  }, "O controle de férias começa na data definida em Cadastros › Parâmetros; períodos concluídos antes dela são desconsiderados e não precisam ser informados. Use esta tela só se quiser registrar saldo de períodos antigos que você tenha reativado. Baixe o modelo (traz os períodos concluídos ainda sem saldo), preencha ", React.createElement("b", null, "dias_gozados"), " (obrigatório), ", React.createElement("b", null, "dias_abono"), " e ", React.createElement("b", null, "faltas"), ", e envie de volta. Linhas sem dias_gozados são ignoradas."), React.createElement("div", {
+  }, "O controle de férias começa na data definida em Cadastros › Parâmetros, e o gozo só pode começar a partir dela. Use esta tela para registrar o saldo de períodos aquisitivos que terminaram ANTES dessa data e ainda estão no prazo de gozo (ex.: 15 dias já gozados em 2026 e 15 a gozar em 2027): o período passa a aparecer em Saldos por período e as férias pedidas consomem esse saldo primeiro. O modelo traz o último período concluído de cada colaborador ativo (exceto PJ) ainda dentro do prazo. Preencha ", React.createElement("b", null, "dias_gozados"), " (obrigatório; use 0 se não tirou nenhum dia), ", React.createElement("b", null, "dias_abono"), " e ", React.createElement("b", null, "faltas"), ", e envie de volta. Linhas sem dias_gozados são ignoradas."), React.createElement("div", {
   className: "flex flex-wrap gap-3 items-center"
 }, React.createElement(Btn, {
   onClick: modelo
@@ -3605,7 +3607,7 @@ function FeriasLote() {
     text: "Processando…"
   }), res && React.createElement("div", {
     className: "mt-4 text-sm"
-  }, React.createElement("p", null, React.createElement("b", null, res.implantados), " de ", res.total, " período(s) implantado(s); ", React.createElement("b", null, res.rejeitados.length), " rejeitado(s)."), res.rejeitados.length > 0 && React.createElement("ul", {
+  }, React.createElement("p", null, React.createElement("b", null, res.implantados), " de ", res.total, " período(s) implantado(s); ", React.createElement("b", null, res.rejeitados.length), " rejeitado(s).", res.criados > 0 && " " + res.criados + " período(s) anterior(es) ao início do controle incluído(s) em Saldos por período."), res.rejeitados.length > 0 && React.createElement("ul", {
     className: "mt-2 list-disc pl-5 text-danger"
   }, res.rejeitados.slice(0, 50).map((r, i) => React.createElement("li", {
     key: i
@@ -11265,7 +11267,7 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
-const APP_VERSAO = '2026-11-15 (migrações até a 021)';
+const APP_VERSAO = '2026-11-16 (migrações até a 022)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
   seg_trabalho: [['painel', 'Painel'], ['colaboradores', 'Colaboradores']],
