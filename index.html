@@ -2851,6 +2851,20 @@ function NovaSolicitacao({
       on = false;
     };
   }, [v.vinculo, anoIni]);
+  const [pend, setPend] = useState(null);
+  useEffect(() => {
+    setPend(null);
+    if (!v.vinculo) return;
+    let on = true;
+    run(sb.from('v_ferias_periodo_saldo').select('inicio,fim,concessivo_fim,saldo_livre,completo').eq('vinculo_id', Number(v.vinculo)).order('inicio')).then(r => {
+      if (!on) return;
+      const hoje = hojeISO();
+      setPend((r || []).find(x => x.completo && Number(x.saldo_livre) > 0 && String(x.fim) < hoje) || null);
+    }).catch(() => {});
+    return () => {
+      on = false;
+    };
+  }, [v.vinculo]);
   const lista = useMemo(() => (q.data || []).filter(r => !busca || norm(r.nome).includes(norm(busca)) || r.matricula.includes(busca)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, 200), [q.data, busca]);
   const dias = v.ini && v.fim ? Math.round((new Date(v.fim) - new Date(v.ini)) / 86400000) + 1 : 0;
   const salvar = async () => {
@@ -2875,7 +2889,7 @@ function NovaSolicitacao({
       onClick: onClose
     }, "Cancelar"), React.createElement(Btn, {
       kind: "pri",
-      disabled: !v.vinculo || dias < 5,
+      disabled: !v.vinculo || dias < Math.min(5, pend ? pend.saldo_livre : 5) || pend && dias > pend.saldo_livre,
       onClick: salvar
     }, "Solicitar"))
   }, q.loading ? React.createElement(Spinner, null) : React.createElement("div", {
@@ -2908,7 +2922,14 @@ function NovaSolicitacao({
   className: "p-3 text-mute text-sm"
 }, "Nenhum colaborador encontrado.")), v.vinculo && (q.data || []).find(r => String(r.vinculo_id) === String(v.vinculo)) && React.createElement("p", {
   className: "text-xs text-mute mt-1"
-}, "Selecionado: ", React.createElement("b", null, (q.data || []).find(r => String(r.vinculo_id) === String(v.vinculo)).nome)))), React.createElement(PeriodoFerias, {
+}, "Selecionado: ", React.createElement("b", null, (q.data || []).find(r => String(r.vinculo_id) === String(v.vinculo)).nome)))), pend && React.createElement("div", {
+  className: 'rounded border p-3 text-sm ' + (dias > pend.saldo_livre ? 'border-danger bg-danger/5' : 'border-acento/50 bg-acento/5'),
+  role: "status"
+}, React.createElement("b", null, "Saldo de período anterior: ", pend.saldo_livre, " dia(s)"), " do período ", fd(pend.inicio), " a ", fd(pend.fim), " (gozo até ", fd(pend.concessivo_fim), ").", React.createElement("div", {
+  className: "mt-1"
+}, "A primeira solicitação deve ser desse saldo, com no máximo ", pend.saldo_livre, " dia(s). Só depois de programá-lo será possível solicitar o período seguinte."), dias > pend.saldo_livre && React.createElement("div", {
+  className: "mt-1 text-danger font-medium"
+}, "Você escolheu ", dias, " dias. Reduza para até ", pend.saldo_livre, ".")), React.createElement(PeriodoFerias, {
     v: v,
     onChange: setV,
     min: minF
@@ -3518,7 +3539,7 @@ function FeriasLote() {
       }];
       baixar(linhas, 'modelo_saldo_anterior', 'xlsx');
     } catch (e) {
-      toast(traduzErro(e), 'erro');
+      toast(/modelo_saldo_anterior|schema cache/i.test(String(e && e.message)) ? 'O banco ainda não tem a migração 022 (modelo de saldo anterior). Rode a 022 no Supabase de PRODUÇÃO.' : traduzErro(e), 'erro');
     }
   };
   const escolher = async file => {
@@ -3607,7 +3628,9 @@ function FeriasLote() {
     text: "Processando…"
   }), res && React.createElement("div", {
     className: "mt-4 text-sm"
-  }, React.createElement("p", null, React.createElement("b", null, res.implantados), " de ", res.total, " período(s) implantado(s); ", React.createElement("b", null, res.rejeitados.length), " rejeitado(s).", res.criados > 0 && " " + res.criados + " período(s) anterior(es) ao início do controle incluído(s) em Saldos por período."), res.rejeitados.length > 0 && React.createElement("ul", {
+  }, React.createElement("p", null, React.createElement("b", null, res.implantados), " de ", res.total, " período(s) implantado(s); ", React.createElement("b", null, res.rejeitados.length), " rejeitado(s).", res.criados > 0 && " " + res.criados + " período(s) anterior(es) ao início do controle incluído(s) em Saldos por período."), res.criados === undefined && React.createElement("p", {
+    className: "mt-2 text-danger"
+  }, "Atenção: o banco ainda está sem a migração 022 (saldo anterior). Rode a 022 no Supabase de PRODUÇÃO e envie a planilha de novo; sem ela, períodos que terminaram antes do início do controle continuam sendo rejeitados."), res.rejeitados.length > 0 && React.createElement("ul", {
     className: "mt-2 list-disc pl-5 text-danger"
   }, res.rejeitados.slice(0, 50).map((r, i) => React.createElement("li", {
     key: i
@@ -11267,7 +11290,7 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
-const APP_VERSAO = '2026-11-16 (migrações até a 022)';
+const APP_VERSAO = '2026-11-18 (migrações até a 024)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
   seg_trabalho: [['painel', 'Painel'], ['colaboradores', 'Colaboradores']],
