@@ -3627,14 +3627,30 @@ function FeriasLote() {
 }, "Remover arquivo"))), busy && React.createElement(Spinner, {
     text: "Processando…"
   }), res && React.createElement("div", {
-    className: "mt-4 text-sm"
-  }, React.createElement("p", null, React.createElement("b", null, res.implantados), " de ", res.total, " período(s) implantado(s); ", React.createElement("b", null, res.rejeitados.length), " rejeitado(s).", res.criados > 0 && " " + res.criados + " período(s) anterior(es) ao início do controle incluído(s) em Saldos por período."), res.criados === undefined && React.createElement("p", {
-    className: "mt-2 text-danger"
-  }, "Atenção: o banco ainda está sem a migração 022 (saldo anterior). Rode a 022 no Supabase de PRODUÇÃO e envie a planilha de novo; sem ela, períodos que terminaram antes do início do controle continuam sendo rejeitados."), res.rejeitados.length > 0 && React.createElement("ul", {
-    className: "mt-2 list-disc pl-5 text-danger"
-  }, res.rejeitados.slice(0, 50).map((r, i) => React.createElement("li", {
-    key: i
-  }, "Linha ", r.linha, " (matrícula ", r.matricula, "): ", r.erro)))));
+  className: "mt-4 text-sm"
+}, res.com_saldo !== undefined ? React.createElement(React.Fragment, null, React.createElement("p", null, React.createElement("b", null, res.com_saldo.length), " colaborador(es) com saldo a gozar (", res.com_saldo.reduce((t, x) => t + x.saldo, 0), " dia(s) no total) · ", React.createElement("b", null, res.sem_saldo), " já gozaram os 30 dias (não precisam de lançamento) · ", React.createElement("b", null, res.rejeitados.length), " rejeitado(s)."), res.com_saldo.length > 0 && React.createElement("div", {
+  className: "mt-2 overflow-x-auto max-h-64 overflow-y-auto"
+}, React.createElement("table", {
+  className: "tbl"
+}, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Matrícula"), React.createElement("th", null, "Colaborador"), React.createElement("th", null, "Período"), React.createElement("th", {
+  className: "text-right"
+}, "Saldo"))), React.createElement("tbody", null, res.com_saldo.map((x, i) => React.createElement("tr", {
+  key: i
+}, React.createElement("td", null, x.matricula), React.createElement("td", null, x.nome), React.createElement("td", {
+  className: "tabular-nums"
+}, fd(x.periodo_inicio), " a ", fd(x.periodo_fim)), React.createElement("td", {
+  className: "text-right tabular-nums"
+}, x.saldo, " d")))))), React.createElement("p", {
+  className: "text-xs text-mute mt-2"
+}, "Esses saldos já aparecem em Saldos por período e passam a ser gozados antes do período seguinte.")) : React.createElement(React.Fragment, null, React.createElement("p", null, React.createElement("b", null, res.implantados), " de ", res.total, " período(s) implantado(s); ", React.createElement("b", null, res.rejeitados.length), " rejeitado(s).", res.criados > 0 && ' ' + res.criados + ' período(s) anterior(es) ao início do controle incluído(s) em Saldos por período.'), res.criados === undefined && React.createElement("p", {
+  className: "mt-2 text-danger"
+}, "Atenção: o banco ainda está sem a migração 022 (saldo anterior). Rode a 022 no Supabase de PRODUÇÃO e envie a planilha de novo; sem ela, períodos que terminaram antes do início do controle continuam sendo rejeitados."), res.criados !== undefined && React.createElement("p", {
+  className: "mt-2 text-xs text-mute"
+}, "Para ver quem ficou com saldo e quem já gozou tudo, rode a migração 025.")), res.rejeitados.length > 0 && React.createElement("ul", {
+  className: "mt-2 list-disc pl-5 text-danger"
+}, res.rejeitados.slice(0, 50).map((r, i) => React.createElement("li", {
+  key: i
+}, "Linha ", r.linha, " (matrícula ", r.matricula, "): ", r.erro)))));
 }
 const MOTIVOS_REQ = ['Aumento de Quadro', 'Substituição', 'Outro'];
 const RECRUT = ['Interno', 'Externo', 'Misto'];
@@ -11290,7 +11306,7 @@ function DashboardDP({
     onClose: () => setPessoa(null)
   }));
 }
-const APP_VERSAO = '2026-11-18 (migrações até a 024)';
+const APP_VERSAO = '2026-11-19 (migrações até a 025)';
 const MENU = {
   get admin_rh() { return MENU.admin; },
   seg_trabalho: [['painel', 'Painel'], ['colaboradores', 'Colaboradores']],
